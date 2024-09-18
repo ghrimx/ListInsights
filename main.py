@@ -20,6 +20,7 @@ def main() -> int:
     # Initialize the main window
     mainwindow: QtWidgets.QMainWindow = QtWidgets.QMainWindow()
     dataviewer = DataViewer()
+    dataviewer.selectFiles()
 
     centralwidget = QtWidgets.QWidget()
     layout = QtWidgets.QHBoxLayout()
