@@ -56,16 +56,18 @@ class DataViewer(QtWidgets.QMdiArea):
     def loadData(self, df: pd.DataFrame):
  
         if df is not None:
-            _model = PandasModel(df)
-            _table = QtWidgets.QTableView()
-            _table.setModel(_model)
+            pandas_model = PandasModel(df)
+            table = QtWidgets.QTableView()
+            table.setModel(pandas_model)
+            table.resizeColumnsToContents()
+            table.setSortingEnabled(True)
 
-            subwindow = self.addSubWindow(_table)
+            self.addSubWindow(table)
 
     def setSubwindowsTitle(self):
-        for subwindow in self.subWindowList(QtWidgets.QMdiArea.WindowOrder.CreationOrder):
-            for file in self._sources:
-                subwindow.setWindowTitle(Path(file).stem)
+        for idx, subwindow in enumerate(self.subWindowList(QtWidgets.QMdiArea.WindowOrder.CreationOrder)):
+            subwindow.setWindowTitle(Path(self._sources[idx]).stem)
+
 
     def selectFiles(self, dir=None, filter=None):
         files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files", directory=dir, filter=filter)
@@ -76,6 +78,7 @@ class DataViewer(QtWidgets.QMdiArea):
         for file in self._sources:
             df = self.readFile(file)
             self.loadData(df)
+            self.setSubwindowsTitle()
     
     def readFile(self, file: str) -> pd.DataFrame | None:
         p = Path(file)
