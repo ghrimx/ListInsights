@@ -1,8 +1,8 @@
 import sys
-
 from PyQt6 import QtWidgets
 
-from dataviewer import DataViewer
+from mainwindow import MainWindow
+
 
 def main() -> int:
     """Initializes the application and runs it.
@@ -18,17 +18,10 @@ def main() -> int:
     app.setStyle("Fusion")
 
     # Initialize the main window
-    mainwindow: QtWidgets.QMainWindow = QtWidgets.QMainWindow()
-    dataviewer = DataViewer()
-    dataviewer.selectFiles()
-
-    centralwidget = QtWidgets.QWidget()
-    layout = QtWidgets.QHBoxLayout()
-    centralwidget.setLayout(layout)
-
-    mainwindow.setCentralWidget(centralwidget)
+    mainwindow: MainWindow= MainWindow()
+    
     mainwindow.showMaximized()
-    dataviewer.showMaximized()
+    mainwindow.initUI()
 
     return sys.exit(app.exec())
 

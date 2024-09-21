@@ -1,5 +1,5 @@
 from pathlib import Path
-from PyQt6 import QtWidgets, QtCore
+from PyQt6 import QtWidgets, QtCore, QtAds, QtGui
 from layout_colorwidget import Color
 import pandas as pd
 
@@ -47,11 +47,18 @@ class PandasModel(QtCore.QAbstractTableModel):
 class DataViewer(QtWidgets.QMdiArea):
     def __init__(self, parent=None):
         super().__init__(parent)
+        vbox = QtWidgets.QVBoxLayout(self)
+        self.toolbar = QtWidgets.QToolBar(self)
+        self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(':bold'), "Load",self , triggered=lambda: self.selectFiles()))
+        self.setLayout(vbox)
+        vbox.addWidget(self.toolbar)
 
         self._sources: list[str] = []
- 
+        self._tables = []
+
         self.tileSubWindows()
 
+        self.setWindowTitle("DataViewer")
 
     def loadData(self, df: pd.DataFrame):
  
