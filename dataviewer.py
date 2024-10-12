@@ -1,6 +1,5 @@
 from pathlib import Path
-from PyQt6 import QtWidgets, QtCore, QtAds, QtGui
-from layout_colorwidget import Color
+from PyQt6 import QtWidgets, QtCore, QtGui
 import pandas as pd
 
 class PandasModel(QtCore.QAbstractTableModel):
@@ -29,8 +28,7 @@ class PandasModel(QtCore.QAbstractTableModel):
 
         return 0
     
-    def headerData(
-        self, section: int, orientation: QtCore.Qt.Orientation, role: QtCore.Qt.ItemDataRole):
+    def headerData(self, section: int, orientation: QtCore.Qt.Orientation, role: QtCore.Qt.ItemDataRole):
         """Override method from QAbstractTableModel
 
         Return dataframe index as vertical header data and columns as horizontal header data.
