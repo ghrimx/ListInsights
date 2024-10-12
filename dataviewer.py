@@ -44,23 +44,21 @@ class PandasModel(QtCore.QAbstractTableModel):
 
         return None
 
-class DataViewer(QtWidgets.QMdiArea):
+class DataViewer(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         vbox = QtWidgets.QVBoxLayout(self)
+        self.setLayout(vbox)
+
         self.toolbar = QtWidgets.QToolBar(self)
         self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(':bold'), "Load",self , triggered=lambda: self.selectFiles()))
-        self.setLayout(vbox)
+        self.mdi = QtWidgets.QMdiArea()
+        
         vbox.addWidget(self.toolbar)
+        vbox.addWidget(self.mdi)
 
-        self._sources: list[str] = []
-        self._tables = []
-
-        self.tileSubWindows()
-
-        self.setWindowTitle("DataViewer")
-
-    def loadData(self, df: pd.DataFrame):
+    def loadData(self, file: str):
+        df:  pd.DataFrame = self.readFile(file)
  
         if df is not None:
             pandas_model = PandasModel(df)
@@ -69,12 +67,10 @@ class DataViewer(QtWidgets.QMdiArea):
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
 
-            self.addSubWindow(table)
+            subwindow = self.mdi.addSubWindow(table)
 
-    def setSubwindowsTitle(self):
-        for idx, subwindow in enumerate(self.subWindowList(QtWidgets.QMdiArea.WindowOrder.CreationOrder)):
-            subwindow.setWindowTitle(Path(self._sources[idx]).stem)
-
+            subwindow.setWindowTitle(Path(file).stem)
+            subwindow.show()
 
     def selectFiles(self, dir=None, filter=None):
         files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files", directory=dir, filter=filter)
@@ -82,10 +78,8 @@ class DataViewer(QtWidgets.QMdiArea):
         if len(files[0]) > 0:
             self._sources = files[0]
 
-        for file in self._sources:
-            df = self.readFile(file)
-            self.loadData(df)
-            self.setSubwindowsTitle()
+            for file in self._sources:
+                self.loadData(file)
     
     def readFile(self, file: str) -> pd.DataFrame | None:
         p = Path(file)
