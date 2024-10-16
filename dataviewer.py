@@ -64,7 +64,6 @@ class DataViewer(QtWidgets.QDialog):
         self.toolbar = QtWidgets.QToolBar(self)
         self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(':bold'), "Load", self, triggered=lambda: self.selectFiles()))
         self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "tabbed", self , triggered= self.setTabbedView))
-        self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "subWindowView", self, triggered= self.setSubWindowView))
         self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "cascade", self,  triggered=self.setCascadeSubWindows))
         self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "tile", self,  triggered=self.setTileSubWindows))
         self.mdi = QtWidgets.QMdiArea()
@@ -77,13 +76,12 @@ class DataViewer(QtWidgets.QDialog):
     def setTabbedView(self):
         self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.TabbedView)
 
-    def setSubWindowView(self):
-        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
-
     def setCascadeSubWindows(self):
+        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
         self.mdi.cascadeSubWindows()
     
     def setTileSubWindows(self):
+        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
         self.mdi.tileSubWindows()
 
     def loadData(self, file: str):
