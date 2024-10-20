@@ -106,20 +106,20 @@ class DataViewer(QtWidgets.QDialog):
         self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
         self.mdi.tileSubWindows()
 
-    def loadData(self, file: str):
-        df:  pd.DataFrame = self.readFile(file)
+    def createDataView(self, df: pd.DataFrame, sourcefile: Path):
  
         if df is not None:
-            pandas_model = PandasModel(df, Path(file))
+            pandas_model = PandasModel(df, sourcefile)
             table = DataView()
             table.setModel(pandas_model)
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
             # pandas_model.filter('166648')
+            table.setSortingEnabled(True)
 
             subwindow = self.mdi.addSubWindow(table)
 
-            subwindow.setWindowTitle(Path(file).stem)
+            subwindow.setWindowTitle(sourcefile.stem)
             subwindow.show()
 
     def selectFiles(self, dir=None, filter=None):
@@ -129,13 +129,20 @@ class DataViewer(QtWidgets.QDialog):
             self._sources = files[0]
 
             for file in self._sources:
-                self.loadData(file)
+                filepath = Path(file)
+                df = self.readFile(filepath)
+
+                if df is not None and filepath.suffix != '.parquet' and not filepath.with_suffix('.parquet').exists():
+                    self.save2Parquet(df, filepath)
+
+                self.createDataView(df, filepath)
     
-    def readFile(self, file: str) -> pd.DataFrame:
-        p = Path(file)
+    def readFile(self, filepath: Path) -> pd.DataFrame:
+        """Read file (*.xlsx, *.csv, *.parquet) and return a pandas dataframe"""
+
         df = None
 
-        if p.suffix == '.csv':
+        if filepath.suffix == '.csv':
             codecs = ["utf-8", "latin-1"]
             seps = [",", ";"]
             i = 0
@@ -143,7 +150,7 @@ class DataViewer(QtWidgets.QDialog):
             reading = True
             while reading:
                 try:
-                    df = pd.read_csv(p, encoding=codecs[i], sep=seps[j])
+                    df = pd.read_csv(filepath, encoding=codecs[i], sep=seps[j])
                 except UnicodeDecodeError:
                     i += 1
                 except pd.errors.ParserError:
@@ -153,18 +160,15 @@ class DataViewer(QtWidgets.QDialog):
                     break
                 else:
                     break
-        elif p.suffix == '.xlsx':
-            df = pd.read_excel(p)
-        elif p.suffix == '.parquet':
-            df = pd.read_parquet(p)
-
-        if df is not None and p.suffix != '.parquet' and not p.with_suffix('.parquet').exists():
-            self.save2Parquet(df, p)
+        elif filepath.suffix == '.xlsx':
+            df = pd.read_excel(filepath)
+        elif filepath.suffix == '.parquet':
+            df = pd.read_parquet(filepath)
 
         return df
     
-    def save2Parquet(self, df: pd.DataFrame, p: str):
-        filepath = Path(p)
+    def save2Parquet(self, df: pd.DataFrame, filepath: Path):
+        """Save pandas dataframe to Apache Parquet file"""
         try:
             df.to_parquet(filepath.with_suffix('.parquet').as_posix())
         except Exception as e:
@@ -173,6 +177,7 @@ class DataViewer(QtWidgets.QDialog):
             return True
     
     def readDataStore(self):
+        """Read JSON file"""
         self.jsonfile = QtCore.QFile(self._storefile)
 
         if not self.jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.ReadOnly):
@@ -191,6 +196,7 @@ class DataViewer(QtWidgets.QDialog):
         self.json_object: dict = self.json_document.object()
 
     def writeDataStore(self):
+        """Write JSON file"""
         self.json_document.setObject(self.json_object)
         jsonbytes = self.json_document.toJson(QtCore.QJsonDocument.JsonFormat.Indented)
 
