@@ -4,9 +4,10 @@ from pathlib import Path
 from PyQt6 import QtWidgets, QtCore, QtGui
 
 class PandasModel(QtCore.QAbstractTableModel):
-    def __init__(self, dataframe: pd.DataFrame, parent=None):
+    def __init__(self, dataframe: pd.DataFrame, sourcefile: Path, parent=None):
         super(PandasModel, self).__init__(parent)
         self.dataframe = dataframe
+        self.sourcefile = sourcefile
 
     @property
     def dataframe(self):
@@ -50,25 +51,46 @@ class PandasModel(QtCore.QAbstractTableModel):
                 return str(self._dataframe.index[section])
 
         return None
+
+    def filter(self, s: str):
+        df = pd.read_parquet(self.sourcefile.with_suffix('.parquet').as_posix(), filters=[('CASE_ID', '=', int(s))])
+        self.beginResetModel()
+        self._dataframe = df.copy()
+        self.endResetModel()
+
     
 class DataView(QtWidgets.QTableView):
     def __init__(self, parent=None):
         super().__init__(parent)
 
 class DataViewer(QtWidgets.QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, storefile: str, parent=None):
         super().__init__(parent)
+        self._storefile = storefile
+        
         vbox = QtWidgets.QVBoxLayout(self)
         self.setLayout(vbox)
 
-        self.toolbar = QtWidgets.QToolBar(self)
-        self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(':bold'), "Load", self, triggered=lambda: self.selectFiles()))
-        self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "tabbed", self , triggered= self.setTabbedView))
-        self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "cascade", self,  triggered=self.setCascadeSubWindows))
-        self.toolbar.addAction(QtGui.QAction(QtGui.QIcon(), "tile", self,  triggered=self.setTileSubWindows))
-        self.mdi = QtWidgets.QMdiArea()
+        # Menubar
+        menubar = QtWidgets.QMenuBar(self)
+        vbox.addWidget(menubar)
         
-        vbox.addWidget(self.toolbar)
+        filemenu = QtWidgets.QMenu("File", self)
+        filemenu.addAction(QtGui.QAction("Open file", self, triggered=lambda: self.selectFiles(filter="*.csv *.xlsx")))
+
+        viewmenu = QtWidgets.QMenu("View", self)
+        viewmenu.addAction(QtGui.QAction("Cascade", self, triggered=self.setCascadeSubWindows))
+        viewmenu.addAction(QtGui.QAction("Tile", self, triggered=self.setTileSubWindows))
+        viewmenu.addAction(QtGui.QAction("Tabbed", self, triggered=self.setTabbedView))
+
+        menubar.addMenu(filemenu)
+        menubar.addMenu(viewmenu)
+
+        # MdiArea
+        self.mdi = QtWidgets.QMdiArea()
+        self.mdi.setTabsMovable(True)
+        self.mdi.setTabsClosable(True)
+        
         vbox.addWidget(self.mdi)
 
         self.readDataStore()
@@ -88,11 +110,12 @@ class DataViewer(QtWidgets.QDialog):
         df:  pd.DataFrame = self.readFile(file)
  
         if df is not None:
-            pandas_model = PandasModel(df)
+            pandas_model = PandasModel(df, Path(file))
             table = DataView()
             table.setModel(pandas_model)
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
+            # pandas_model.filter('166648')
 
             subwindow = self.mdi.addSubWindow(table)
 
@@ -108,7 +131,7 @@ class DataViewer(QtWidgets.QDialog):
             for file in self._sources:
                 self.loadData(file)
     
-    def readFile(self, file: str) -> pd.DataFrame | None:
+    def readFile(self, file: str) -> pd.DataFrame:
         p = Path(file)
         df = None
 
@@ -135,16 +158,23 @@ class DataViewer(QtWidgets.QDialog):
         elif p.suffix == '.parquet':
             df = pd.read_parquet(p)
 
-        if df is not None and p.suffix != '.parquet':
-            df.to_parquet(p.with_suffix('.parquet').as_posix(), index=False)
+        if df is not None and p.suffix != '.parquet' and not p.with_suffix('.parquet').exists():
+            self.save2Parquet(df, p)
 
         return df
     
-    def saveFile(self):
-        ...
+    def save2Parquet(self, df: pd.DataFrame, p: str):
+        filepath = Path(p)
+        try:
+            df.to_parquet(filepath.with_suffix('.parquet').as_posix())
+        except Exception as e:
+            return False
+        else:
+            return True
     
     def readDataStore(self):
-        self.jsonfile = QtCore.QFile("datastore.json")
+        self.jsonfile = QtCore.QFile(self._storefile)
+
         if not self.jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.ReadOnly):
             print(f"Opening Error: {IOError(self.jsonfile.errorString())}")
             return

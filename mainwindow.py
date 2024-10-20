@@ -8,7 +8,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("MainWindow")
 
-        self.dataviewer = DataViewer()
+        self.dataviewer = DataViewer('datastore.json')
 
     def initUI(self):
         self.dataviewer.showMaximized()
