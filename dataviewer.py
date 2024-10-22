@@ -1,5 +1,5 @@
+import io
 import pandas as pd
-import json
 from pathlib import Path
 from PyQt6 import QtWidgets, QtCore, QtGui
 
@@ -209,3 +209,10 @@ class DataViewer(QtWidgets.QDialog):
             print("file open failed")
             return
 
+    def get_info(self, model: PandasModel):
+        buffer = io.StringIO()
+        model.dataframe.info(buf=buffer)
+        s = buffer.getvalue()
+        msg = QtWidgets.QMessageBox(self)
+        msg.setText(s)
+        msg.show()
