@@ -59,6 +59,12 @@ class PandasModel(QtCore.QAbstractTableModel):
         self._dataframe = df.copy()
         self.endResetModel()
 
+    def refresh(self):
+        df = pd.read_parquet(self.sourcefile.with_suffix('.parquet').as_posix())
+        self.beginResetModel()
+        self._dataframe = df.copy()
+        self.endResetModel()
+
     
 class DataView(QtWidgets.QTableView):
     def __init__(self, parent=None):
@@ -95,16 +101,23 @@ class DataViewer(QtWidgets.QWidget):
 
         # Toolbar
         toolbar = QtWidgets.QToolBar(self)
+        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        toolbar.setIconSize(QtCore.QSize(32, 32))
         vbox.addWidget(toolbar)
 
         # Get info
-        getInfoAction = QtGui.QAction("Info", self, triggered=self.getInfo)
+        getInfoAction = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.getInfo)
         toolbar.addAction(getInfoAction)
 
         # Sync Selection
-        self.syncSelectionFilterAction = QtGui.QAction("Sync Selection", self)
+        self.syncSelectionFilterAction = QtGui.QAction(QtGui.QIcon(":loop-right-line"),"Sync Selection", self)
         self.syncSelectionFilterAction.setCheckable(True)
         toolbar.addAction(self.syncSelectionFilterAction)
+
+        # Reset Filter
+        self.resetFiltersAction = QtGui.QAction(QtGui.QIcon(":filter-off-line"), "Reset filters", self)
+        self.resetFiltersAction.triggered.connect(self.resetFilters)
+        toolbar.addAction(self.resetFiltersAction)
 
         # MdiArea
         self.mdi = QtWidgets.QMdiArea()
@@ -114,7 +127,6 @@ class DataViewer(QtWidgets.QWidget):
         vbox.addWidget(self.mdi)
 
         self.readDataStore()
-
 
     def setTabbedView(self):
         self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.TabbedView)
@@ -134,14 +146,12 @@ class DataViewer(QtWidgets.QWidget):
             table.setModel(pandas_model)
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
-            # pandas_model.filter('166648')
-            table.setSortingEnabled(True)
 
             table.selectionModel().selectionChanged.connect(self.syncSelectionFilter)
 
             subwindow = self.mdi.addSubWindow(table)
 
-            subwindow.setWindowTitle(sourcefile.stem)
+            subwindow.setWindowTitle(sourcefile.stem.upper())
             subwindow.show()
 
     def selectFiles(self, dir=None, filter=None):
@@ -256,7 +266,13 @@ class DataViewer(QtWidgets.QWidget):
             for subwindow in self.mdi.subWindowList():
                 if subwindow == self.mdi.activeSubWindow():
                     continue
-                
+
                 subwindow.widget().model().filter(cid)
+                subwindow.widget().resizeColumnsToContents()
+
+    @Slot()
+    def resetFilters(self):
+        for subwindow in self.mdi.subWindowList():
+            subwindow.widget().model().refresh()
         
 
