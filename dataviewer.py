@@ -2,6 +2,7 @@ import io
 import pandas as pd
 from pathlib import Path
 from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6.QtCore import pyqtSlot as Slot
 
 class PandasModel(QtCore.QAbstractTableModel):
     def __init__(self, dataframe: pd.DataFrame, sourcefile: Path, parent=None):
@@ -63,9 +64,15 @@ class DataView(QtWidgets.QTableView):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-class DataViewer(QtWidgets.QDialog):
+class DataViewer(QtWidgets.QWidget):
     def __init__(self, storefile: str, parent=None):
         super().__init__(parent)
+        self.initUI(storefile)
+
+    def initUI(self, storefile):
+        self.setWindowTitle("DataViewer")
+        self.setWindowFlags(QtCore.Qt.WindowType.Window)
+
         self._storefile = storefile
         
         vbox = QtWidgets.QVBoxLayout(self)
@@ -86,6 +93,19 @@ class DataViewer(QtWidgets.QDialog):
         menubar.addMenu(filemenu)
         menubar.addMenu(viewmenu)
 
+        # Toolbar
+        toolbar = QtWidgets.QToolBar(self)
+        vbox.addWidget(toolbar)
+
+        # Get info
+        getInfoAction = QtGui.QAction("Info", self, triggered=self.getInfo)
+        toolbar.addAction(getInfoAction)
+
+        # Sync Selection
+        self.syncSelectionFilterAction = QtGui.QAction("Sync Selection", self)
+        self.syncSelectionFilterAction.setCheckable(True)
+        toolbar.addAction(self.syncSelectionFilterAction)
+
         # MdiArea
         self.mdi = QtWidgets.QMdiArea()
         self.mdi.setTabsMovable(True)
@@ -94,6 +114,7 @@ class DataViewer(QtWidgets.QDialog):
         vbox.addWidget(self.mdi)
 
         self.readDataStore()
+
 
     def setTabbedView(self):
         self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.TabbedView)
@@ -107,7 +128,6 @@ class DataViewer(QtWidgets.QDialog):
         self.mdi.tileSubWindows()
 
     def createDataView(self, df: pd.DataFrame, sourcefile: Path):
- 
         if df is not None:
             pandas_model = PandasModel(df, sourcefile)
             table = DataView()
@@ -116,6 +136,8 @@ class DataViewer(QtWidgets.QDialog):
             table.setSortingEnabled(True)
             # pandas_model.filter('166648')
             table.setSortingEnabled(True)
+
+            table.selectionModel().selectionChanged.connect(self.syncSelectionFilter)
 
             subwindow = self.mdi.addSubWindow(table)
 
@@ -159,12 +181,12 @@ class DataViewer(QtWidgets.QDialog):
                     reading = False
                     break
                 else:
+                    reading = False
                     break
         elif filepath.suffix == '.xlsx':
             df = pd.read_excel(filepath)
         elif filepath.suffix == '.parquet':
             df = pd.read_parquet(filepath)
-
         return df
     
     def save2Parquet(self, df: pd.DataFrame, filepath: Path):
@@ -209,10 +231,32 @@ class DataViewer(QtWidgets.QDialog):
             print("file open failed")
             return
 
-    def get_info(self, model: PandasModel):
+    @Slot()
+    def getInfo(self):
+        active_subwindow = self.mdi.activeSubWindow()
+
+        if active_subwindow is None:
+            return
+
         buffer = io.StringIO()
-        model.dataframe.info(buf=buffer)
+        active_subwindow.widget().model().dataframe.info(buf=buffer)
         s = buffer.getvalue()
         msg = QtWidgets.QMessageBox(self)
         msg.setText(s)
         msg.show()
+
+
+    @Slot(QtCore.QItemSelection, QtCore.QItemSelection)
+    def syncSelectionFilter(self, selected: QtCore.QItemSelection, deselected: QtCore.QItemSelection):
+        if self.syncSelectionFilterAction.isChecked():
+            indexes = selected.indexes()
+            index: QtCore.QModelIndex = indexes[0]
+            cid = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
+
+            for subwindow in self.mdi.subWindowList():
+                if subwindow == self.mdi.activeSubWindow():
+                    continue
+                
+                subwindow.widget().model().filter(cid)
+        
+
