@@ -3,6 +3,7 @@ from PyQt6 import QtWidgets
 
 from mainwindow import MainWindow
 
+from utilities import config as mconf
 
 def main() -> int:
     """Initializes the application and runs it.

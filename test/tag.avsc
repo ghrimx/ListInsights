@@ -1,0 +1,9 @@
+{
+ "type": "record",
+ "namespace": "listinsights",
+ "name": "Tag",
+ "fields": [
+   { "name": "tagname", "type": "string"},
+   { "name": "values", "type": {"type": "array", "items": "string"}}
+ ]
+} 

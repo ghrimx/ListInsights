@@ -1,4 +1,4 @@
-from PyQt6 import QtWidgets, QtAds
+from PyQt6 import QtWidgets
 
 from resources import qrc_resources
 from dataviewer import DataViewer
@@ -8,8 +8,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("MainWindow")
 
-        self.dataviewer = DataViewer('datastore.json')
+        self.dataviewer = DataViewer('src/datastore.json')
 
     def initUI(self):
         self.dataviewer.showMaximized()
-        # self.dataviewer.selectFiles()
