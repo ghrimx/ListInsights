@@ -1,5 +1,6 @@
-{ "name": "Line-listing",
-  "title": "Extract from Safety Database",
+{ 
+  "name": "line-listing",
+  "title": "Extract from the Safety Database",
   "resources": [
     {
       "dialect": {
