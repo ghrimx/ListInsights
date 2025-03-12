@@ -161,3 +161,4 @@ cython_debug/
 
 # Sample
 Sample/
+test/data

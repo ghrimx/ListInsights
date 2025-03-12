@@ -1,4 +1,4 @@
-from PyQt6 import QtWidgets
+from qtpy import QtWidgets
 
 from resources import qrc_resources
 from dataviewer import DataViewer

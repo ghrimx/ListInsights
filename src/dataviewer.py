@@ -2,8 +2,7 @@ import io
 import logging
 import pandas as pd
 from pathlib import Path
-from PyQt6 import QtWidgets, QtCore, QtGui
-from PyQt6.QtCore import pyqtSlot as Slot, pyqtSignal as Signal
+from qtpy import QtWidgets, QtCore, QtGui, Slot, Signal
 
 from utilities import config as mconf
 
@@ -400,12 +399,25 @@ class DataViewer(QtWidgets.QWidget):
 
                 self.createDataView(df, filepath)
     
-    def readFile(self, filepath: Path) -> pd.DataFrame:
+    def readFile(self, filepath: Path, **kwargs) -> pd.DataFrame:
         """Read file (*.xlsx, *.csv, *.parquet) and return a pandas dataframe"""
 
-        df = None
+        df: pd.DataFrame = None
 
-        if filepath.suffix == '.csv':
+        file_type = filepath.suffix.lower()
+
+        handlers = {
+            '.csv': pd.read_csv,
+            '.xlsx': pd.read_excel,
+            '.parquet': pd.read_parquet
+        }
+
+        reader = handlers.get(file_type)
+        if reader is None:
+            logger.error(f"Unsupported file type: {file_type}")
+            return ValueError(f"Unsupported file type: {file_type}")
+
+        if  file_type == '.csv':
             codecs = ["utf-8", "latin-1"]
             seps = [",", ";"]
             i = 0
@@ -413,21 +425,21 @@ class DataViewer(QtWidgets.QWidget):
             reading = True
             while reading:
                 try:
-                    df = pd.read_csv(filepath, encoding=codecs[i], sep=seps[j])
+                    df = reader(filepath, encoding=codecs[i], sep=seps[j])
                 except UnicodeDecodeError:
                     i += 1
                 except pd.errors.ParserError:
                     j += 1
                 except Exception as e:
+                    logger.error(e)
                     reading = False
                     break
                 else:
                     reading = False
                     break
-        elif filepath.suffix == '.xlsx':
-            df = pd.read_excel(filepath)
-        elif filepath.suffix == '.parquet':
-            df = pd.read_parquet(filepath)
+        else:
+            df = reader(filepath, **kwargs)
+
         return df
     
     def save2Parquet(self, df: pd.DataFrame, filepath: Path):

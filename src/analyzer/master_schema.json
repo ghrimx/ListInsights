@@ -1,0 +1,19 @@
+{
+  "fields": [
+    {
+      "name": "CASE_ID",
+      "type": "string"
+    },
+    {
+      "name": "INIT_REPT_DATE",
+      "type": "date"
+    },
+    {
+      "name": "CASE_TYPE",
+      "type": "string"
+    }
+  ],
+  "primaryKey": "CASE_ID"
+}
+
+

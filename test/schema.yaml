@@ -1,0 +1,166 @@
+resources:
+  - path: test\sample\assessment.csv
+    name: assessment
+    profile: tabular-data-resource
+    scheme: file
+    format: csv
+    hashing: md5
+    encoding: utf-8
+    schema:
+      fields:
+        - type: integer
+          name: CASE_ID
+        - type: string
+          name: PRODUCT_NAME
+        - type: string
+          name: DRUG_ROLE
+        - type: string
+          name: EVENT_PT
+        - type: string
+          name: RPT_CAUSALITY
+        - type: string
+          name: RPT_SOURCE
+        - type: string
+          name: DET_CAUSALITY
+        - type: string
+          name: DET_SOURCE
+        - type: string
+          name: IB_LISTED
+        - type: string
+          name: SMPC_LISTED
+        - type: string
+          name: CORE_LISTED
+  - path: test\sample\event.csv
+    name: event
+    profile: tabular-data-resource
+    scheme: file
+    format: csv
+    hashing: md5
+    encoding: utf-8
+    schema:
+      fields:
+        - type: integer
+          name: CASE_ID
+        - type: string
+          name: EVENT_PT
+        - type: string
+          name: EVENT_LLT
+        - type: string
+          name: COUNTRY_OF_OCCURENCE
+        - name: AS_REPORTED_EVENT_SERIOUSNESS
+          type: any
+        - type: string
+          name: AS_DETERMINED_EVENT_SERIOUSNESS
+        - type: string
+          name: DEATH
+        - type: string
+          name: LIFE_THREATENING
+        - type: string
+          name: HOSPITALISATION
+        - type: string
+          name: DISABLING
+        - type: string
+          name: CONGENITAL
+        - type: string
+          name: OMIC
+        - type: string
+          name: EVENT_OUTCOME
+        - type: string
+          name: MEDICALLY_CONFIRMED
+  - path: test\sample\master.csv
+    name: master
+    profile: tabular-data-resource
+    scheme: file
+    format: csv
+    hashing: md5
+    encoding: utf-8
+    schema:
+      fields:
+        - type: integer
+          name: CASE_ID
+        - type: string
+          name: CASE_NUM
+        - type: string
+          name: WWUID
+        - type: string
+          name: FIRST_SENDER
+        - type: string
+          name: CASE_TYPE
+        - type: string
+          name: VALID
+        - type: string
+          name: EXPEDITED
+        - type: date
+          name: INIT_REPT_DATE
+        - name: ZERO_DATE
+          type: any
+        - type: date
+          name: INIT_SAFETY_DATE
+        - type: date
+          name: INIT_EMA_DATE
+        - type: integer
+          name: FUP_ATP_CNT
+        - type: string
+          name: CASE_SERIOUSNESS
+        - type: string
+          name: PRIMARY_SUSPECT_PRODUCT_NAME
+        - type: string
+          name: PRIMARY_EVENT_PT
+        - type: string
+          name: IDENTIFIABLE_REPORTER
+        - type: string
+          name: COUNTRY_CASE
+        - type: string
+          name: PRIMARY_REPORTER_QUALIFICATION
+        - type: string
+          name: PRIMARY_REPORTER_COUNTRY_CODE
+        - type: string
+          name: PARENT_CHILD
+        - type: string
+          name: IDENTIFIABLE_PATIENT
+        - type: number
+          name: PATIENT_AGE
+        - type: string
+          name: PATIENT_AGE_UNIT
+        - type: string
+          name: PATIENT_AGE_GROUP
+        - type: string
+          name: PATIENT_SEX
+        - type: string
+          name: STUDY_TYPE
+        - type: string
+          name: STUDY_REGISTRATION_NUMBER
+        - name: USER_ID
+          type: any
+        - type: datetime
+          name: CREATION_TS
+        - type: datetime
+          name: LAST_UPDATE_TS
+  - path: test\sample\report.csv
+    name: report
+    profile: tabular-data-resource
+    scheme: file
+    format: csv
+    hashing: md5
+    encoding: utf-8
+    schema:
+      fields:
+        - type: integer
+          name: CASE_ID
+        - type: string
+          name: REPORT_SOURCE
+        - type: integer
+          name: CASE_VERSION
+        - name: REPORT_SENDER
+          type: any
+        - type: date
+          name: RECEIPT_DATE
+        - type: date
+          name: RECORDED_DATE
+        - type: date
+          name: SAFETY_DATE
+        - type: date
+          name: EMA_DATE
+        - type: string
+          name: CHANGE_TYPE
+profile: data-package
