@@ -1,4 +1,5 @@
-{
+{ "name": "Line-listing",
+  "title": "Extract from Safety Database",
   "resources": [
     {
       "dialect": {
@@ -96,8 +97,8 @@
             "name": "COUNTRY_OF_OCCURENCE"
           },
           {
-            "name": "AS_REPORTED_EVENT_SERIOUSNESS",
-            "type": "any"
+            "type": "string",
+            "name": "AS_REPORTED_EVENT_SERIOUSNESS"
           },
           {
             "type": "string",
@@ -187,8 +188,8 @@
             "name": "INIT_REPT_DATE"
           },
           {
-            "name": "ZERO_DATE",
-            "type": "any"
+            "type": "date",
+            "name": "ZERO_DATE"
           },
           {
             "type": "date",
@@ -263,8 +264,8 @@
             "name": "STUDY_REGISTRATION_NUMBER"
           },
           {
-            "name": "USER_ID",
-            "type": "any"
+            "type": "string",
+            "name": "USER_ID"
           },
           {
             "type": "datetime",
@@ -306,8 +307,8 @@
             "name": "CASE_VERSION"
           },
           {
-            "name": "REPORT_SENDER",
-            "type": "any"
+            "type": "string",
+            "name": "REPORT_SENDER"
           },
           {
             "type": "date",
