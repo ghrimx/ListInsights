@@ -251,34 +251,82 @@ class DataView(QtWidgets.QTableView):
         self.context_menu.addAction(self.show_indexmenu_action)
         self.context_menu.exec(QtGui.QCursor().pos())
 
+    def updateContextMenu(self):
+        model: PandasModel = self.model()
+        if model.primary_column_name == "":
+            self.tag_action.setEnabled(False)
+        else:
+            self.tag_action.setEnabled(True)
+
     def onTagActionTriggered(self):
         index = self.selectionModel().currentIndex()
         self.sigOpenTagManager.emit(index)
 
     def showIndexMenu(self):
         index = self.selectionModel().currentIndex()
-        index_name = self.model().headerData(index.column(),
-                                             QtCore.Qt.Orientation.Horizontal,
-                                             QtCore.Qt.ItemDataRole.DisplayRole)
-        menu = IndexMenu(index_name, self.model().primary_column_name,index.column(), self)
-        menu.sigIndexSetAsPrimaryKey.connect(self.model().onSetPrimaryIndex)
+        model: PandasModel = self.model()
+        index_name = model.headerData(index.column(),
+                                      QtCore.Qt.Orientation.Horizontal,
+                                      QtCore.Qt.ItemDataRole.DisplayRole)
+        menu = IndexMenu(index_name, model.primary_column_name,index.column(), self)
+        menu.sigIndexSetAsPrimaryKey.connect(model.onSetPrimaryIndex)
+        menu.sigIndexSetAsPrimaryKey.connect(self.updateContextMenu)
         menu.popup(QtGui.QCursor().pos())
 
 
 class DataViewer(QtWidgets.QWidget):
-    def __init__(self, storefile: str, parent=None):
+    """
+    shortlist.json
+    tagged.json
+
+    /working folder
+        datapackage.json
+        /data
+            /source
+                .csv or .xlsx
+            /validation
+                .parquet
+            /cleansing
+                .parquet
+        /report
+            shortlist.json
+            tagged.json
+    """
+    def __init__(self,
+                 shortlist_file: str,
+                 tagged_file: str,
+                 tagged: dict,
+                 shortlist: dict,
+                 parent=None):
         super().__init__(parent)
-        self.tagged = {}
-        self.initUI(storefile)
+        self.tagged_file = tagged_file
+        self.shortlist_file = shortlist_file
+        self.tagged = tagged
+        self.shortlist = shortlist
+        self.initUI()
         self.initDialogs()
         self.connectSignals()
 
-    def initUI(self, storefile):
+    @classmethod
+    def setup(cls, shortlist_file: str, tagged_file: str):
+        tagged = {}
+        shortlist = {}
+        
+        if shortlist_file == "" or tagged_file == "":
+            return
+
+        if Path(shortlist_file).is_file():
+            shortlist = cls.readJson(shortlist_file)
+
+        if Path(tagged_file).is_file():
+            tagged = cls.readJson(tagged_file)
+        
+        return DataViewer(shortlist_file, tagged_file, tagged, shortlist)
+
+    def initUI(self):
         self.setWindowTitle("DataViewer")
         self.setWindowFlags(QtCore.Qt.WindowType.Window)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
-
-        self._storefile = storefile
         
         vbox = QtWidgets.QVBoxLayout(self)
         self.setLayout(vbox)
@@ -332,8 +380,6 @@ class DataViewer(QtWidgets.QWidget):
         self.splitter.addWidget(self.mdi)
         vbox.addWidget(self.splitter)
 
-        self.readDataStore()
-
     def initDialogs(self):
         self.tag_dialog: TagDialog = None
 
@@ -357,6 +403,7 @@ class DataViewer(QtWidgets.QWidget):
             table = DataView()
             table.table_name = sourcefile.stem.upper()
             table.setModel(pandas_model)
+            table.updateContextMenu()
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
             table.sigOpenTagManager.connect(self.onOpenTagManager)
@@ -399,7 +446,8 @@ class DataViewer(QtWidgets.QWidget):
 
                 self.createDataView(df, filepath)
     
-    def readFile(self, filepath: Path, **kwargs) -> pd.DataFrame:
+    @classmethod
+    def readFile(cls, filepath: Path, **kwargs) -> pd.DataFrame:
         """Read file (*.xlsx, *.csv, *.parquet) and return a pandas dataframe"""
 
         df: pd.DataFrame = None
@@ -442,7 +490,8 @@ class DataViewer(QtWidgets.QWidget):
 
         return df
     
-    def save2Parquet(self, df: pd.DataFrame, filepath: Path):
+    @classmethod
+    def save2Parquet(cls, df: pd.DataFrame, filepath: Path):
         """Save pandas dataframe to Apache Parquet file"""
         try:
             df.to_parquet(filepath.with_suffix('.parquet').as_posix())
@@ -450,43 +499,51 @@ class DataViewer(QtWidgets.QWidget):
             return False
         else:
             return True
-    
-    def readDataStore(self):
+        
+    @classmethod
+    def readJson(cls, str_path: str) -> dict:
         """Read JSON file"""
-        self.jsonfile = QtCore.QFile(self._storefile)
+        jsonfile = QtCore.QFile(str_path)
 
-        if not self.jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.ReadOnly):
-            logger.error(f"Opening Error: {IOError(self.jsonfile.errorString())}")
+        if not jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.ReadOnly):
+            logger.error(f"Opening Error: {IOError(jsonfile.errorString())}")
             return
         
-        file_bytes = self.jsonfile.readAll()
-        self.jsonfile.close()
+        file_bytes = jsonfile.readAll()
+        jsonfile.close()
 
         json_error = QtCore.QJsonParseError()
-        self.json_document = QtCore.QJsonDocument.fromJson(file_bytes, json_error)
+        json_document = QtCore.QJsonDocument.fromJson(file_bytes, json_error)
 
-        if self.json_document.isNull():
+        if json_document.isNull():
             logger.error(f"Parser Error: {json_error.errorString()}")
         
-        self.datastore: dict = self.json_document.object()
-        for key in self.datastore.keys():
-            item: QtCore.QJsonValue = self.datastore.get(key)
+        datastore: dict = json_document.object()
+        for key in datastore.keys():
+            item: QtCore.QJsonValue = datastore.get(key)
             if item.isArray():
-                self.datastore[key] = item.toArray()
-
-    def writeDataStore(self):
+                datastore[key] = item.toArray()
+        
+        return datastore
+    
+    @classmethod
+    def writeJson(cls, str_path: str, data: dict):
         """Write JSON file"""
-        self.json_document.setObject(self.datastore)
-        jsonbytes = self.json_document.toJson(QtCore.QJsonDocument.JsonFormat.Indented)
+        jsonfile = QtCore.QFile(str_path)
 
-        if self.jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.WriteOnly | QtCore.QIODeviceBase.OpenModeFlag.Text | QtCore.QIODeviceBase.OpenModeFlag.Truncate):
-            textstream = QtCore.QTextStream(self.jsonfile)
-            textstream.setEncoding(QtCore.QStringConverter.Encoding.Utf8)
-            textstream << jsonbytes
-            self.jsonfile.close()
-        else:
-            logger.error("Opening file failed")
-            return
+        if not jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.WriteOnly):
+            logger.error(f"Opening Error: {IOError(jsonfile.errorString())}")
+            return False
+        
+        json_document = QtCore.QJsonDocument.fromVariant(data)
+
+        if json_document.isNull():
+            logger.error(f"Failed to map JSON data structure")
+  
+        jsonfile.write(json_document.toJson(QtCore.QJsonDocument.JsonFormat.Indented))
+        jsonfile.close()
+
+        return True
 
     @Slot()
     def getInfo(self):
@@ -517,12 +574,12 @@ class DataViewer(QtWidgets.QWidget):
     def syncSelectionFilter(self, selected: QtCore.QItemSelection, deselected: QtCore.QItemSelection):
         if self.syncSelectionFilterAction.isChecked():
             indexes = selected.indexes()
-            primary_column_index = self.mdi.activeSubWindow().widget().model().primary_column_index
+            model: PandasModel = self.mdi.activeSubWindow().widget().model()
 
-            if primary_column_index < 0:
+            if model.primary_column_index < 0:
                 return
 
-            index: QtCore.QModelIndex = indexes[primary_column_index]
+            index: QtCore.QModelIndex = indexes[model.primary_column_index]
             cid = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
             for subwindow in self.mdi.subWindowList():
@@ -561,13 +618,13 @@ class DataViewer(QtWidgets.QWidget):
                                       QtCore.Qt.ItemDataRole.EditRole)   
 
                 for tag in tag_list:
-                    if tag in self.datastore:
-                        if case_id not in self.datastore[tag]:
-                            self.datastore[tag].append(case_id)
+                    if tag in self.tagged:
+                        if case_id not in self.tagged[tag]:
+                            self.tagged[tag].append(case_id)
                     else:
-                        self.datastore.update({tag: [case_id]})
+                        self.tagged.update({tag: [case_id]})
                 
-                self.writeDataStore()
+                self.writeJson(self.tagged_file, self.tagged)
     
     def closeEvent(self, a0):
         """Save dataframe to Parquet file upon closing the dataviewer"""
