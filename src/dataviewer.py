@@ -327,7 +327,7 @@ class DataViewer(QtWidgets.QWidget):
         self.setWindowTitle("DataViewer")
         self.setWindowFlags(QtCore.Qt.WindowType.Window)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
-        
+        tab = QtWidgets.QTabWidget()        
         vbox = QtWidgets.QVBoxLayout(self)
         self.setLayout(vbox)
 
@@ -379,7 +379,7 @@ class DataViewer(QtWidgets.QWidget):
         self.splitter.addWidget(self.tag_pane)
         self.splitter.addWidget(self.mdi)
         vbox.addWidget(self.splitter)
-
+        
     def initDialogs(self):
         self.tag_dialog: TagDialog = None
 
