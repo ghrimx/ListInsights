@@ -22,7 +22,6 @@ def main() -> int:
     mainwindow: MainWindow= MainWindow()
     
     mainwindow.showMaximized()
-    mainwindow.initUI()
 
     return sys.exit(app.exec())
 

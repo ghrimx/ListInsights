@@ -2,9 +2,13 @@ import io
 import logging
 import pandas as pd
 from pathlib import Path
+from functools import partial
 from qtpy import QtWidgets, QtCore, QtGui, Slot, Signal
 
 from utilities import config as mconf
+
+from shortlister import ShortLister
+from tagger import Tagger, TagDialog
 
 logger = logging.getLogger(__name__)
 
@@ -134,96 +138,12 @@ class IndexMenu(QtWidgets.QMenu):
             self.sigIndexSetAsPrimaryKey.emit(self._index_name, self._primary_idx)
         else:
             self.sigIndexSetAsPrimaryKey.emit("", -1)
-
-
-class TagDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        tags: list = mconf.settings.value("tags", [], list)
-        self.completer = QtWidgets.QCompleter(tags)
-        self.completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
-
-        self.setWindowTitle("Tag Manager")
-
-        vbox = QtWidgets.QVBoxLayout()
-        self.setLayout(vbox)
-
-        add_widget = QtWidgets.QWidget()
-        add_widget_hbox = QtWidgets.QHBoxLayout()
-        add_widget.setLayout(add_widget_hbox)
-
-        self.tag_input = QtWidgets.QLineEdit()
-        self.tag_input.setCompleter(self.completer)
-
-        add_button = QtWidgets.QPushButton("Add", self)
-        add_button.clicked.connect(self.addTag)
-        add_widget_hbox.addWidget(self.tag_input)
-        add_widget_hbox.addWidget(add_button)
-
-        vbox.addWidget(add_widget)
-        self.tag_list_model = QtCore.QStringListModel()
-        self.tag_list = QtWidgets.QListView()
-        self.tag_list.setModel(self.tag_list_model)
-        vbox.addWidget(self.tag_list)
-        remove_button = QtWidgets.QPushButton("Remove", self)
-        vbox.addWidget(remove_button)
-
-        buttons = (QtWidgets.QDialogButtonBox.StandardButton.Save | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
-
-        self.buttonBox = QtWidgets.QDialogButtonBox(buttons)
-        self.buttonBox.accepted.connect(self.accept)
-        self.buttonBox.rejected.connect(self.reject)
-        vbox.addWidget(self.buttonBox)
-    
-    def addTag(self):
-        tag = self.tag_input.text()
-
-        if tag.strip() == "":
-            return
-
-        completer_list: list = self.completer.model().stringList()
-
-        # Save tag to QSettings
-        if tag not in completer_list:
-            completer_list.append(tag)
-            self.completer.model().setStringList(completer_list)
-            mconf.settings.setValue("Tags", completer_list)
-
-        # Add tag to the data tag list
-        data_tags = self.tag_list_model.stringList()
-        if tag not in data_tags:
-            data_tags.append(tag)
-            self.tag_list_model.setStringList(data_tags)
-
-
-class TagModel(QtCore.QAbstractListModel):
-    def __init__(self, data = [], parent=None):
-        super().__init__(parent)
-        self._data = data
-
-    def rowCount(self, parent=QtCore.QModelIndex()):
-        return len(self._data)
-
-    def data(self, index, role):
-        if not index.isValid():
-            return None
-
-        if index.row() >= len(self._data):
-            return None
-
-        if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            return self._data[index.row()]
-        else:
-            return None
-
-
-class TagPane(QtWidgets.QListView):
-    def __init__(self, parent=None):
-        super().__init__(parent)
       
 
 class DataView(QtWidgets.QTableView):
     sigOpenTagManager = Signal(QtCore.QModelIndex)
+    sigAddToShortlist = Signal()
+    sigPrimaryKeyChanged = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -234,8 +154,9 @@ class DataView(QtWidgets.QTableView):
         self.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.contextMenuEvent)
 
-        self.tag_action = QtGui.QAction(QtGui.QIcon(":tags"), "Manage Tag", self, triggered=self.onTagActionTriggered)
-        self.show_indexmenu_action = QtGui.QAction("Show Index Menu", self, triggered=self.showIndexMenu)
+        self.action_openTagMenu = QtGui.QAction(QtGui.QIcon(":tags"), "Manage Tag", self, triggered=self.openTagMenu)
+        self.action_show_indexmenu = QtGui.QAction("Show Index Menu", self, triggered=self.showIndexMenu)
+        self.action_addToShortlist = QtGui.QAction("Add to Shortlist", self, triggered=self.addToShortlist)
 
     @property
     def table_name(self):
@@ -247,21 +168,26 @@ class DataView(QtWidgets.QTableView):
 
     def contextMenuEvent(self, event: QtGui.QMouseEvent):
         """Creating a context menu"""
-        self.context_menu.addAction(self.tag_action)
-        self.context_menu.addAction(self.show_indexmenu_action)
+        self.context_menu.addAction(self.action_openTagMenu)
+        self.context_menu.addAction(self.action_show_indexmenu)
+        self.context_menu.addAction(self.action_addToShortlist)
         self.context_menu.exec(QtGui.QCursor().pos())
 
     def updateContextMenu(self):
         model: PandasModel = self.model()
         if model.primary_column_name == "":
-            self.tag_action.setEnabled(False)
+            self.action_openTagMenu.setEnabled(False)
+            self.action_addToShortlist.setEnabled(False)
         else:
-            self.tag_action.setEnabled(True)
-
-    def onTagActionTriggered(self):
+            self.action_openTagMenu.setEnabled(True)
+            self.action_addToShortlist.setEnabled(True)
+        
+    @Slot()
+    def openTagMenu(self):
         index = self.selectionModel().currentIndex()
         self.sigOpenTagManager.emit(index)
 
+    @Slot()
     def showIndexMenu(self):
         index = self.selectionModel().currentIndex()
         model: PandasModel = self.model()
@@ -270,132 +196,140 @@ class DataView(QtWidgets.QTableView):
                                       QtCore.Qt.ItemDataRole.DisplayRole)
         menu = IndexMenu(index_name, model.primary_column_name,index.column(), self)
         menu.sigIndexSetAsPrimaryKey.connect(model.onSetPrimaryIndex)
-        menu.sigIndexSetAsPrimaryKey.connect(self.updateContextMenu)
+        menu.sigIndexSetAsPrimaryKey.connect(self.updateContextMenu)    
+        menu.sigIndexSetAsPrimaryKey.connect(self.sigPrimaryKeyChanged)    
         menu.popup(QtGui.QCursor().pos())
+    
+    @Slot()
+    def addToShortlist(self):
+        index = self.selectionModel().currentIndex()
+        model: PandasModel = self.model()
+        pk_value = index.sibling(index.row(), model.primary_column_index).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        print(pk_value)
+        self.sigAddToShortlist.emit()
 
 
 class DataViewer(QtWidgets.QWidget):
-    """
-    shortlist.json
-    tagged.json
-
-    /working folder
-        datapackage.json
-        /data
-            /source
-                .csv or .xlsx
-            /validation
-                .parquet
-            /cleansing
-                .parquet
-        /report
-            shortlist.json
-            tagged.json
-    """
-    def __init__(self,
-                 shortlist_file: str,
-                 tagged_file: str,
-                 tagged: dict,
-                 shortlist: dict,
-                 parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.tagged_file = tagged_file
-        self.shortlist_file = shortlist_file
-        self.tagged = tagged
-        self.shortlist = shortlist
-        self.initUI()
-        self.initDialogs()
-        self.connectSignals()
 
-    @classmethod
-    def setup(cls, shortlist_file: str, tagged_file: str):
-        tagged = {}
-        shortlist = {}
-        
-        if shortlist_file == "" or tagged_file == "":
-            return
-
-        if Path(shortlist_file).is_file():
-            shortlist = cls.readJson(shortlist_file)
-
-        if Path(tagged_file).is_file():
-            tagged = cls.readJson(tagged_file)
-        
-        return DataViewer(shortlist_file, tagged_file, tagged, shortlist)
-
-    def initUI(self):
-        self.setWindowTitle("DataViewer")
-        self.setWindowFlags(QtCore.Qt.WindowType.Window)
-        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
-        tab = QtWidgets.QTabWidget()        
         vbox = QtWidgets.QVBoxLayout(self)
         self.setLayout(vbox)
-
-        # Menubar
-        menubar = QtWidgets.QMenuBar(self)
-        self.layout().setMenuBar(menubar)
-        
-        filemenu = QtWidgets.QMenu("File", self)
-        filemenu.addAction(QtGui.QAction("Open file", self, triggered=lambda: self.selectFiles(filter="*.csv *.xlsx *.parquet")))
-
-        viewmenu = QtWidgets.QMenu("View", self)
-        viewmenu.addAction(QtGui.QAction("Cascade", self, triggered=self.setCascadeSubWindows))
-        viewmenu.addAction(QtGui.QAction("Tile", self, triggered=self.setTileSubWindows))
-        viewmenu.addAction(QtGui.QAction("Tabbed", self, triggered=self.setTabbedView))
-
-        menubar.addMenu(filemenu)
-        menubar.addMenu(viewmenu)
-
-        # Toolbar
-        toolbar = QtWidgets.QToolBar(self)
-        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
-        vbox.addWidget(toolbar)
-
-        # Get info
-        getInfoAction = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.getInfo)
-        toolbar.addAction(getInfoAction)
-
-        # Sync Selection
-        self.syncSelectionFilterAction = QtGui.QAction(QtGui.QIcon(":loop-right-line"),"Sync Selection", self)
-        self.syncSelectionFilterAction.setCheckable(True)
-        toolbar.addAction(self.syncSelectionFilterAction)
-
-        # Reset Filter
-        self.resetFiltersAction = QtGui.QAction(QtGui.QIcon(":filter-off-line"), "Reset filters", self)
-        self.resetFiltersAction.triggered.connect(self.resetFilters)
-        toolbar.addAction(self.resetFiltersAction)
 
         # MdiArea
         self.mdi = QtWidgets.QMdiArea()
         self.mdi.setTabsMovable(True)
         self.mdi.setTabsClosable(True)
-    
+
+        # Actions & Toolbar
+        self.createActions()
+        self.createToolbar()
+
+        self.tab = QtWidgets.QTabWidget()
+
         # LeftPane
-        self.tag_model = TagModel()
-        self.tag_pane = TagPane()
-        self.tag_pane.setModel(self.tag_model)
+        self.tag_pane = Tagger()
+        self.shortlister = ShortLister()
+
+        self.tab.addTab(self.tag_pane, "Tags")
+        self.tab.addTab(self.shortlister, "ShortLister")
 
         self.splitter = QtWidgets.QSplitter()
-        self.splitter.addWidget(self.tag_pane)
+        self.splitter.addWidget(self.tab)
         self.splitter.addWidget(self.mdi)
+        
+        vbox.addWidget(self.toolbar)
         vbox.addWidget(self.splitter)
+
+        self.initDialogs()
+        self.connectSignals()
+
+    def createActions(self):
+        self.action_import_data = QtGui.QAction(QtGui.QIcon(":import-line"),"Import data",
+                                                self,
+                                                triggered=lambda: self.selectFiles(filter="*.csv *.xlsx *.parquet"))
+        
+        # Get info
+        self.action_getInfo = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.getInfo)
+
+        # Sync Selection
+        self.action_syncSelectionFilter = QtGui.QAction(QtGui.QIcon(":loop-right-line"),"Sync Selection", self)
+        self.action_syncSelectionFilter.setCheckable(True)
+        self.action_syncSelectionFilter.setEnabled(False)
+
+        # Reset Filter
+        self.action_resetFilters = QtGui.QAction(QtGui.QIcon(":filter-off-line"), "Reset filters", self)
+        self.action_resetFilters.triggered.connect(self.resetFilters)
+
+        self.action_minimizeAll = QtGui.QAction(QtGui.QIcon(':folder-2-line'), "Minimize", self, triggered=self.minimizeAll)
+        self.action_showNormalAll = QtGui.QAction(QtGui.QIcon(':folder-2-line'), "Normal", self, triggered=self.showNormalAll)
+        self.action_showMaximizeAll = QtGui.QAction(QtGui.QIcon(':folder-2-line'), "Maximized", self, triggered=self.showMaximizeAll)
+        self.action_setTileView = QtGui.QAction(QtGui.QIcon(':layout-grid-line'), "Tile", self, triggered=self.setTileView)
+        self.action_setTabbedView = QtGui.QAction(QtGui.QIcon(':folder-2-line'), "Tabbed", self, triggered=self.setTabbedView)
+
+        self.action_close = QtGui.QAction("Cl&ose", self, statusTip="Close the active window", triggered=self.close)
+        self.action_closeall = QtGui.QAction("Close &All", self, statusTip="Close all the windows", triggered=self.close_all)
+    
+    @Slot()
+    def updateActionState(self):
+        pks = 0
+        for subwindow in self.mdi.subWindowList():
+            model: PandasModel = subwindow.widget().model()
+            
+            if model.primary_column_name != "":
+                pks += 1
+        
+        if pks == len(self.mdi.subWindowList()):
+            self.action_syncSelectionFilter.setEnabled(True)
+        else:
+            self.action_syncSelectionFilter.setEnabled(False)
+
+    def createToolbar(self):
+        self.toolbar = QtWidgets.QToolBar(self)
+        self.toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+
+        # View menu
+        viewmenu_toolbutton = QtWidgets.QToolButton(self)
+        viewmenu_toolbutton.setIcon(QtGui.QIcon(':eye-line'))
+        viewmenu_toolbutton.setText("Views")
+        viewmenu_toolbutton.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        viewmenu = QtWidgets.QMenu("View", self)
+
+        cascade_menu = QtWidgets.QMenu("Cascade", self)
+        cascade_menu.setIcon(QtGui.QIcon(':stack-line'))
+        cascade_menu.addAction(self.action_minimizeAll)
+        cascade_menu.addAction(self.action_showNormalAll)
+        cascade_menu.addAction(self.action_showMaximizeAll)
+        viewmenu.addMenu(cascade_menu)
+
+        viewmenu.addAction(self.action_setTileView)
+        viewmenu.addAction(self.action_setTabbedView)
+        viewmenu_toolbutton.setMenu(viewmenu)
+        
+        # Window selection menu
+        self.window_menu = QtWidgets.QMenu("Window", self)
+
+        self.windowmenu_toolbutton = QtWidgets.QToolButton(self)
+        self.windowmenu_toolbutton.setIcon(QtGui.QIcon(':window-2-line'))
+        self.windowmenu_toolbutton.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.windowmenu_toolbutton.setMenu(self.window_menu)
+        self.update_window_menu()
+        self.window_menu.aboutToShow.connect(self.update_window_menu)
+
+        # Add to Toolbar
+        self.toolbar.addAction(self.action_import_data)
+        self.toolbar.addAction(self.action_getInfo)
+        self.toolbar.addAction(self.action_resetFilters)
+        self.toolbar.addAction(self.action_syncSelectionFilter)
+        self.toolbar.addWidget(viewmenu_toolbutton)
+        self.toolbar.addWidget(self.windowmenu_toolbutton)
         
     def initDialogs(self):
         self.tag_dialog: TagDialog = None
 
     def connectSignals(self):
         ...
-
-    def setTabbedView(self):
-        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.TabbedView)
-
-    def setCascadeSubWindows(self):
-        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
-        self.mdi.cascadeSubWindows()
-    
-    def setTileSubWindows(self):
-        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
-        self.mdi.tileSubWindows()
 
     def createDataView(self, df: pd.DataFrame, sourcefile: Path):
         if df is not None:
@@ -406,9 +340,10 @@ class DataViewer(QtWidgets.QWidget):
             table.updateContextMenu()
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
+            
             table.sigOpenTagManager.connect(self.onOpenTagManager)
-
             table.selectionModel().selectionChanged.connect(self.syncSelectionFilter)
+            table.sigPrimaryKeyChanged.connect(self.updateActionState)
 
             subwindow = self.mdi.addSubWindow(table)
 
@@ -499,52 +434,7 @@ class DataViewer(QtWidgets.QWidget):
             return False
         else:
             return True
-        
-    @classmethod
-    def readJson(cls, str_path: str) -> dict:
-        """Read JSON file"""
-        jsonfile = QtCore.QFile(str_path)
-
-        if not jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.ReadOnly):
-            logger.error(f"Opening Error: {IOError(jsonfile.errorString())}")
-            return
-        
-        file_bytes = jsonfile.readAll()
-        jsonfile.close()
-
-        json_error = QtCore.QJsonParseError()
-        json_document = QtCore.QJsonDocument.fromJson(file_bytes, json_error)
-
-        if json_document.isNull():
-            logger.error(f"Parser Error: {json_error.errorString()}")
-        
-        datastore: dict = json_document.object()
-        for key in datastore.keys():
-            item: QtCore.QJsonValue = datastore.get(key)
-            if item.isArray():
-                datastore[key] = item.toArray()
-        
-        return datastore
-    
-    @classmethod
-    def writeJson(cls, str_path: str, data: dict):
-        """Write JSON file"""
-        jsonfile = QtCore.QFile(str_path)
-
-        if not jsonfile.open(QtCore.QIODeviceBase.OpenModeFlag.WriteOnly):
-            logger.error(f"Opening Error: {IOError(jsonfile.errorString())}")
-            return False
-        
-        json_document = QtCore.QJsonDocument.fromVariant(data)
-
-        if json_document.isNull():
-            logger.error(f"Failed to map JSON data structure")
   
-        jsonfile.write(json_document.toJson(QtCore.QJsonDocument.JsonFormat.Indented))
-        jsonfile.close()
-
-        return True
-
     @Slot()
     def getInfo(self):
         active_subwindow = self.mdi.activeSubWindow()
@@ -572,22 +462,27 @@ class DataViewer(QtWidgets.QWidget):
 
     @Slot(QtCore.QItemSelection, QtCore.QItemSelection)
     def syncSelectionFilter(self, selected: QtCore.QItemSelection, deselected: QtCore.QItemSelection):
-        if self.syncSelectionFilterAction.isChecked():
+        if self.action_syncSelectionFilter.isChecked():
             indexes = selected.indexes()
             model: PandasModel = self.mdi.activeSubWindow().widget().model()
 
             if model.primary_column_index < 0:
                 return
 
-            index: QtCore.QModelIndex = indexes[model.primary_column_index]
+            try:
+                index: QtCore.QModelIndex = indexes[model.primary_column_index]
+            except:
+                return
+            
             cid = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
             for subwindow in self.mdi.subWindowList():
                 if subwindow == self.mdi.activeSubWindow():
                     continue
-
-                subwindow.widget().model().filter(cid)
-                subwindow.widget().resizeColumnsToContents()
+                
+                widget: DataView = subwindow.widget()
+                widget.model().filter(cid)
+                widget.resizeColumnsToContents()
 
     @Slot()
     def resetFilters(self):
@@ -600,9 +495,10 @@ class DataViewer(QtWidgets.QWidget):
             self.tag_dialog = TagDialog()
 
         table: DataView = self.mdi.activeSubWindow().widget()
+        table_model: PandasModel = table.model()
 
         tags: str = index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        case_id: str = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        uid: str = index.sibling(index.row(), table_model.primary_column_index).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
         if tags == 'None':
             self.tag_dialog.tag_list.model().setStringList([])
@@ -617,16 +513,79 @@ class DataViewer(QtWidgets.QWidget):
                                       tag_list,
                                       QtCore.Qt.ItemDataRole.EditRole)   
 
-                for tag in tag_list:
-                    if tag in self.tagged:
-                        if case_id not in self.tagged[tag]:
-                            self.tagged[tag].append(case_id)
+                for tagname in tag_list:
+                    if tagname in self.tag_pane.model().tagnames():
+                        self.tag_pane.model().addToItem(tagname, uid)
                     else:
-                        self.tagged.update({tag: [case_id]})
+                        self.tag_pane.model().addTag(tagname, uid)
                 
-                self.writeJson(self.tagged_file, self.tagged)
+    @Slot()
+    def update_window_menu(self):
+        self.window_menu.clear()
+        self.window_menu.addAction(self.action_close)
+        self.window_menu.addAction(self.action_closeall)
+        self.window_menu.addSeparator()
+
+        windows = self.mdi.subWindowList()
+        
+        for i, window in enumerate(windows):
+            child: DataView = window.widget()
+
+            f = child.table_name
+            text = f'{i + 1} {f}'
+            if i < 9:
+                text = '&' + text
+
+            action = self.window_menu.addAction(text)
+            action.setCheckable(True)
+            action.setChecked(window is self.mdi.activeSubWindow())
+            slot_func = partial(self.set_active_sub_window, window=window)
+            action.triggered.connect(slot_func)
+
+    def set_active_sub_window(self, window):
+        if window:
+            self.mdi.setActiveSubWindow(window)
+
+    def close(self):
+        active_sub_window = self.mdi.activeSubWindow()
+        
+        if active_sub_window is None:
+            return
+        
+        self.mdi.closeActiveSubWindow()
     
-    def closeEvent(self, a0):
+    def close_all(self):
+        self.mdi.closeAllSubWindows()
+
+    def setTabbedView(self):
+        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.TabbedView)
+
+    def setCascadeView(self):
+        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
+        self.mdi.cascadeSubWindows()
+    
+    def setTileView(self):
+        self.mdi.setViewMode(QtWidgets.QMdiArea.ViewMode.SubWindowView)
+        for subwindow in self.mdi.subWindowList():
+            subwindow.showMaximized()
+        self.mdi.tileSubWindows()
+
+    def minimizeAll(self):
+        self.setCascadeView()
+        for subwindow in self.mdi.subWindowList():
+            subwindow.showMinimized()
+    
+    def showNormalAll(self):
+        self.setCascadeView()
+        for subwindow in self.mdi.subWindowList():
+            subwindow.showNormal()
+
+    def showMaximizeAll(self):
+        self.setCascadeView()
+        for subwindow in self.mdi.subWindowList():
+            subwindow.showMaximized()
+    
+    def closeEvent(self, a0): #TODO
         """Save dataframe to Parquet file upon closing the dataviewer"""
         for subwindow in self.mdi.subWindowList():
             model: PandasModel = subwindow.widget().model()

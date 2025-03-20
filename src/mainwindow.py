@@ -1,33 +1,16 @@
-from qtpy import QtWidgets, QtCore
-import json
+from qtpy import QtWidgets
+
 from resources import qrc_resources
-from dataviewer import DataViewer
-from shortlister import ShortLister, ShortListModel
+from listinsight import ListInsight
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MainWindow")
-        
-        self.dataviewer = DataViewer.setup("shortlist.json", "tagged.json")
 
-        self.tab = QtWidgets.QTabWidget()
-        self.tab.addTab(self.dataviewer, "DataFrame")
+        self.listinsight = ListInsight("C:/Users/debru/Documents/DEMO", self)
+        # self.listinsight.setShortlistfile('shortlist.json')
+        # self.listinsight.setTaggedFile('tagged.json')
 
-        shortlister = ShortLister()
-
-        json_path = QtCore.QFileInfo(__file__).absoluteDir().filePath("shortlist.json")
-
-        with open(json_path) as file:
-            document = json.load(file)
-            shortlister.model().load(document)
-
-        self.tab.addTab(shortlister, "ShortLister")
-
-
-    def initUI(self):
-        if self.dataviewer is None:
-            return
-        
-        self.tab.showMaximized()
-
+        self.setCentralWidget(self.listinsight)

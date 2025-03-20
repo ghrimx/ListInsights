@@ -1,15 +1,40 @@
-from qtpy import QtCore, QtWidgets, QtGui, Slot
-from widgets.basetab import BaseTab
+import logging
+from qtpy import QtCore, QtWidgets, QtGui, Slot, Signal
+from utilities import config as mconf
 
-class NoteCustomItemDelegate(QtWidgets.QStyledItemDelegate):
-    def createEditor(self, parent, options, index: QtCore.QModelIndex):
-        return QtWidgets.QTextEdit(parent)
+logger = logging.getLogger(__name__)
 
-    def setEditorData(self, editor: QtWidgets.QWidget, index: QtCore.QModelIndex):
-        editor.setText(index.data())
 
-    def setModelData(self, editor: QtWidgets.QTextEdit, model, index: QtCore.QModelIndex):
-        model.setData(index, editor.toPlainText(), QtCore.Qt.ItemDataRole.EditRole)
+class ShortListProxyModel(QtCore.QSortFilterProxyModel):
+
+    def __init__(self, model):
+        super().__init__()
+
+        self.setSourceModel(model)
+
+        self.user_filter = QtCore.QRegularExpression()
+        self.pattern_filter = ""
+
+    def setPatternFilter(self, pattern: str):
+        self.pattern_filter = pattern
+    
+    def filterAcceptsRow(self, source_row: int, source_parent: QtCore.QModelIndex) -> bool:
+        model: ShortListModel = self.sourceModel()
+        index = model.index(source_row, 0)
+
+        if not index.isValid():
+            return
+
+        item: ShortListItem = model.getItem(index)
+
+        if self.pattern_filter in item.title:
+            return True
+        elif self.pattern_filter in item.body:
+            return True
+        elif self.pattern_filter in item.tags:
+            return True
+        else:
+            return False
 
 class ShortListItem(QtCore.QObject):
     def __init__(self, text: str, stitle: str, ltags: list = [], finding: bool = False):
@@ -51,9 +76,10 @@ class ShortListItem(QtCore.QObject):
     def finding(self, finding: bool):
         self._finding = finding
 
+
 class ShortListModel(QtCore.QAbstractItemModel):
     def __init__(self):
-        super(ShortListModel, self).__init__()
+        super().__init__()
         self._items = []
 
     def items(self):
@@ -67,10 +93,9 @@ class ShortListModel(QtCore.QAbstractItemModel):
         if len(self._items) > 0:
             self.removeRows(0, len(self._items))
 
-    def prependItem(self, note: ShortListItem):
+    def prependItem(self, item: ShortListItem):
         new_index = 0
         self.beginInsertRows(QtCore.QModelIndex(), new_index, new_index)
-        item = note
         self._items.insert(new_index, item)
         self.endInsertRows()
         return item
@@ -81,12 +106,6 @@ class ShortListModel(QtCore.QAbstractItemModel):
         self._items.append(item)
         self.endInsertRows()
         return item
-
-    def noteDateChanged(self, item):
-        for i, current_item in enumerate(self._items):
-            if current_item == item:
-                self.refresh(i)
-                break
 
     def insertRows(self, position, rows, parent=QtCore.QModelIndex()):
         self.beginInsertRows(parent, position, position + rows - 1)
@@ -108,7 +127,7 @@ class ShortListModel(QtCore.QAbstractItemModel):
     def getItem(self, index: QtCore.QModelIndex):
         if not index.isValid():
             return None
-        # item: ShortListItem = index.internalPointer()
+        
         item: ShortListItem = self._items[index.row()]
         return item if item else None
 
@@ -122,8 +141,14 @@ class ShortListModel(QtCore.QAbstractItemModel):
             return item
         
     def setData(self, index: QtCore.QModelIndex, item: ShortListItem, role=QtCore.Qt.ItemDataRole.EditRole):
+        if not index.isValid():
+            return None
+        
+        if not role == QtCore.Qt.ItemDataRole.EditRole:
+            return
+        
         self._items[index.row()] = item
-        self.dataChanged.emit(index, index, role)
+        self.dataChanged.emit(index, index)
 
     def flags(self, index):
         if not index.isValid():
@@ -145,33 +170,43 @@ class ShortListModel(QtCore.QAbstractItemModel):
         return len(self._items)
         
     def load(self, document: dict, sort = True):
-        """Load model from a nested dictionary returned by json.loads()
+        """Load model from a nested dictionary
 
         Arguments:
             document (dict): JSON-compatible dictionary
         """
 
-        assert isinstance(document, (dict)), f"`document` must be of type dict not {type(document)}"
+        if not isinstance(document, (dict)):
+            logger.error(f"`document` must be of type dict not {type(document)}")
+            return
 
         self.beginResetModel()
 
         items = sorted(document.items()) if sort else document.items()
 
         for key, value in items:
-            annotation = ShortListItem(value["body"], key, value["tags"], value["finding"])
-            self.appendItem(annotation)
+            shortlist_item = ShortListItem(value["body"], key, value["tags"], value["finding"])
+            self.appendItem(shortlist_item)
 
         self.endResetModel()
 
         return True
+    
+    def toJson(self) -> dict:
+        """Return a JSON-compatible dictionary"""
+        document = {}
+        item: ShortListItem
+        for item in self._items:
+            document[item.title] = {"finding":item.finding,
+                                    "tags":item.tags,
+                                    "body":item.body}
+        
+        return document
 
 
 class ShortListDelegate(QtWidgets.QStyledItemDelegate):
-    def __init__(self, view: QtWidgets.QListView, proxy_model: QtCore.QSortFilterProxyModel= None):
-        super().__init__(view)
-        self.view = view
-        self.proxy_model = view.model()
-
+    def __init__(self):
+        super().__init__()
         self.margins: QtCore.QMargins = QtCore.QMargins()
         self.icon_size: QtCore.QSize =  QtCore.QSize()
         self.spacing_horizontal: int = 0
@@ -234,15 +269,18 @@ class ShortListDelegate(QtWidgets.QStyledItemDelegate):
         # Tags
         font.setWeight(QtGui.QFont.Weight.Normal)
         painter.setFont(font)
+        painter.setPen(QtGui.QColorConstants.Svg.dodgerblue)
         tag_rect = item_rect.adjusted(30, 23, -10, 0)
         painter.drawText(tag_rect, QtCore.Qt.AlignmentFlag.AlignRight, ", ".join(item.tags))
 
         # Body content
-        excerpt_rect = item_rect.adjusted(30, 53, -10, 0)
-        flags = QtCore.Qt.AlignmentFlag.AlignLeft|QtCore.Qt.TextFlag.TextWordWrap
-        fontm = painter.fontMetrics()
-        excerpt = fontm.elidedText(item.body, QtCore.Qt.TextElideMode.ElideRight, excerpt_rect.width() * 2)
-        painter.drawText(excerpt_rect, flags, excerpt)
+        if not item.body.strip() == "":
+            painter.setPen(QtGui.QColorConstants.Black)
+            excerpt_rect = item_rect.adjusted(30, 53, -10, 0)
+            flags = QtCore.Qt.AlignmentFlag.AlignLeft|QtCore.Qt.TextFlag.TextWordWrap
+            fontm = painter.fontMetrics()
+            excerpt = fontm.elidedText(item.body, QtCore.Qt.TextElideMode.ElideRight, excerpt_rect.width() * 2)
+            painter.drawText(excerpt_rect, flags, excerpt)
 
         # Bottom border line
         painter.setPen(QtCore.Qt.GlobalColor.gray)
@@ -257,53 +295,149 @@ class ShortListView(QtWidgets.QListView):
     def __init__(self):
         super(ShortListView, self).__init__()
 
-class TextEdit(QtWidgets.QTextEdit):
-    def __init__(self):
-        super(TextEdit, self).__init__()
-        self.setViewportMargins(20, 20, 20, 20)
-        self.setStyleSheet("""QTextEdit {
-                                background: #fff;
-                                color: #333;
-                            }""")
-        font = QtGui.QFont()
-        font.setPixelSize(16)
-        document = self.document()
-        document.setDefaultFont(font)
+
+class ShortListEditor(QtWidgets.QDialog):
+    def __init__(self, item: ShortListItem, parent = None):
+        super().__init__(parent)
+        self._item = item
+
+        self.setWindowTitle("ShortLister - Editor")
+        self.setMinimumWidth(450)
+
+        buttons = (QtWidgets.QDialogButtonBox.StandardButton.Save | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+
+        self.buttonBox = QtWidgets.QDialogButtonBox(buttons)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        vbox = QtWidgets.QVBoxLayout()
+        self.setLayout(vbox)
+
+        self.title_lineedit = QtWidgets.QLineEdit()
+        self.title_lineedit.setText(self._item.title)
+        self.body_editor = QtWidgets.QTextEdit()
+        self.body_editor.setMarkdown(self._item.body)
+
+        vbox.addWidget(self.title_lineedit)
+        vbox.addWidget(self.body_editor)
+        vbox.addWidget(self.buttonBox)
+        self.body_editor.setFocus()
+        cursor = self.body_editor.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+        self.body_editor.setTextCursor(cursor)
+        
+
+    def accept(self):
+        self._item.body = self.body_editor.toMarkdown()
+        self._item.title = self.title_lineedit.text()
+        return super().accept()
+        
+    def item(self):
+        return self._item
     
-class ShortLister(BaseTab):
+class ShortLister(QtWidgets.QWidget):
+    sigSaveToJson = Signal(dict)
+
     def __init__(self, parent = None):
         super().__init__(parent)
-
         self._model = ShortListModel()
+        self._proxymodel = ShortListProxyModel(self._model)
+        self._proxymodel.setDynamicSortFilter(False)       
         self.initUI()
-    
+                
     def initUI(self):
+        vbox = QtWidgets.QVBoxLayout()
+        self.setLayout(vbox)
+
+        # Buttons layout
+        hbox = QtWidgets.QHBoxLayout()
+        vbox.addLayout(hbox)
+
+        # Search tool
+        self.search_tool = QtWidgets.QLineEdit()
+        self.search_tool.setPlaceholderText("Search...")
+        self.search_tool.textChanged.connect(self.searchfor)
+        tags: list = mconf.settings.value("tags", [], list)
+        completer = QtWidgets.QCompleter(tags)
+        completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
+        self.search_tool.setCompleter(completer)
+        hbox.addWidget(self.search_tool)
+
+        # Add/Remove buttons
+        add_btn = QtWidgets.QToolButton()
+        add_btn.setIcon(QtGui.QIcon(":add-box"))
+        add_btn.clicked.connect(self.addShortlistItem)
+        remove_btn = QtWidgets.QToolButton()
+        remove_btn.setIcon(QtGui.QIcon(":delete-bin2"))
+        remove_btn.clicked.connect(self.removeShortlistItem)
+        hbox.addWidget(add_btn)
+        hbox.addWidget(remove_btn)
+
         # ShortList listview
         self._shortlist_view = ShortListView()
-        self._shortlist_view.setModel(self._model)
-        self._shortlist_view.selectionModel().currentChanged.connect(self.onShortListItemSelected)
+        self._shortlist_view.setModel(self._proxymodel)
+        self._shortlist_view.doubleClicked.connect(self.editShortlistItem)
 
         # ShortList Delegate
-        delegate = ShortListDelegate(self._shortlist_view)
+        delegate = ShortListDelegate()
         delegate.setContentsMargins(8, 8, 8, 8)
         delegate.setIconSize(24, 24)
         delegate.setHorizontalSpacing(8)
         delegate.setVerticalSpacing(4)
         self._shortlist_view.setItemDelegate(delegate)
 
-        # QTextedit
-        self.textedit = TextEdit()
-
-        self.splitter.addWidget(self._shortlist_view)
-        self.splitter.addWidget(self.textedit)
-
+        vbox.addWidget(self._shortlist_view)
+        
     def model(self) -> ShortListModel:
         return self._model
     
     def shortlist_view(self) -> QtWidgets.QListView:
         return self._shortlist_view
-    
+
     @Slot(QtCore.QModelIndex)
-    def onShortListItemSelected(self, index: QtCore.QModelIndex):
-        body = self._shortlist_view.model().getItem(index).body
-        self.textedit.setPlainText(body)
+    def editShortlistItem(self, index: QtCore.QModelIndex):
+        src_index = self._proxymodel.mapToSource(index)
+        item = self.model().getItem(src_index)
+        self.editor = ShortListEditor(item, self)
+
+        if self.editor.exec():
+            isModified = self.editor.body_editor.document().isModified() or self.editor.title_lineedit.isModified()
+            notEmpty = self.editor.body_editor.toPlainText() != "" and self.editor.title_lineedit.text() != ""
+
+            if isModified and notEmpty:
+                item = self.editor.item()
+                self.model().setData(src_index, item, QtCore.Qt.ItemDataRole.EditRole)
+                self.saveShortList()
+
+    @Slot()
+    def addShortlistItem(self):
+        item = ShortListItem("", "")
+        self.editor = ShortListEditor(item, self)
+
+        if self.editor.exec():
+            isModified = self.editor.body_editor.document().isModified() or self.editor.title_lineedit.isModified()
+            notEmpty = self.editor.body_editor.toPlainText() != "" and self.editor.title_lineedit.text() != ""
+
+            if isModified and notEmpty:
+                item = self.editor.item()
+                self.model().appendItem(item)
+                self.saveShortList()
+
+    @Slot()
+    def removeShortlistItem(self):
+        index = self._shortlist_view.selectionModel().currentIndex()
+        src_index = self._proxymodel.mapToSource(index)
+
+        if self.model().removeRows(src_index.row(), 1):
+            self.saveShortList()
+
+    @Slot()
+    def searchfor(self):
+        pattern = self.search_tool.text()
+        self._proxymodel.setPatternFilter(pattern)
+        self._proxymodel.invalidateFilter()
+
+    def saveShortList(self):
+        doc = self.model().toJson()
+        self.sigSaveToJson.emit(doc)
+
