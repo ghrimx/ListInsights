@@ -1,9 +1,12 @@
 import sys
-from qtpy import QtWidgets
+from src.listinsight.qtpy import QtWidgets
 
-from mainwindow import MainWindow
+from test.mainwindow import MainWindow
 
-from utilities import config as mconf
+from src.listinsight.utilities import config as mconf
+
+def test_listinsight():
+    assert main() == 0
 
 def main() -> int:
     """Initializes the application and runs it.
@@ -23,8 +26,10 @@ def main() -> int:
     
     mainwindow.showMaximized()
 
-    return sys.exit(app.exec())
+    # return sys.exit(app.exec())
+    return app.exec()
 
 
-if __name__ == '__main__':
-    sys.exit(main())
+# if __name__ == '__main__':
+#     sys.exit(main())
+
