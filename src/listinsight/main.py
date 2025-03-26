@@ -1,9 +1,8 @@
 import sys
-from listinsight.qtpy import QtWidgets
+from qtpy import QtWidgets
+from mainwindow import MainWindow
 
-from test.mainwindow import MainWindow
-
-from listinsight.utilities import config as mconf
+from utilities import config as mconf
 
 def main() -> int:
     """Initializes the application and runs it.

@@ -2,7 +2,10 @@ import logging
 from pathlib import Path
 from qtpy import QtCore, QtWidgets, Slot
 
-from .dataviewer.dataviewer import DataViewer
+# from .dataviewer.dataviewer import DataViewer
+# from .dataviewer.dataviewer import DataSet
+from dataviewer.dataviewer import DataSet # for testing
+from dataviewer.dataviewer import DataViewer # for testing
 
 from utilities.utils import writeJson, readJson
 
@@ -90,10 +93,10 @@ class ListInsight(QtWidgets.QWidget):
         data, err = readJson(self._tagged_file)
         self.dataviewer.tag_pane.model().load(data.copy(), True)
 
-    @Slot(str,str,str)
-    def onDatasetImported(self, source: str, parquet: str, dataset_name: str):
+    @Slot(DataSet)
+    def onDatasetImported(self, dataset: DataSet):
         datasets: dict = self._project["datasets"]
-        datasets.update({dataset_name:{"source":source, "parquet":parquet, "primary_key": ""}})
+        datasets.update({dataset.uid:{"parquet":dataset.parquet.as_posix(), "primary_key": ""}})
         self.saveProject()
        
     @Slot(dict)

@@ -13,20 +13,55 @@ from .tagger import Tagger, TagDialog
 logger = logging.getLogger(__name__)
 
 
+class DataSet(pd.DataFrame):
+    def __init__(self, name: str, df: pd.DataFrame):
+        super().__init__(df)
+        self._name = name
+        self._parquet = Path()
+        self._uid: str =  ""
+    
+    @property
+    def name(self):
+        return self._name
+    
+    @name.setter
+    def name(self, sname: str):
+        self._name = sname
+
+    @property
+    def parquet(self):
+        return self._parquet
+    
+    @parquet.setter
+    def parquet(self, pfile: Path):
+        self._parquet = pfile
+        self._uid = str(pfile.stat().st_birthtime_ns)
+
+    @property
+    def uid(self):
+        return self._uid
+    
+    @uid.setter
+    def uid(self, iid: str):
+        self._uid = iid
+
+    def __str__(self):
+        return f"Datasetname={self.name}, parquet={self.parquet.as_posix()}, uid={self.uid})"
+
+
 class PandasModel(QtCore.QAbstractTableModel):
-    def __init__(self, dataframe: pd.DataFrame, sourcefile: Path, parent=None):
+    def __init__(self, dataset: DataSet, parent=None):
         super(PandasModel, self).__init__(parent)
         self._primary_column_name = ""
         self._primary_column_index = -1
-        self._dataframe: pd.DataFrame = dataframe
-        self.sourcefile: Path = sourcefile
+        self._dataframe: DataSet = dataset
 
     @property
     def dataframe(self):
         return self._dataframe
     
     @dataframe.setter
-    def dataframe(self, df: pd.DataFrame):
+    def dataframe(self, df: DataSet):
         self._dataframe = df
 
     @property
@@ -96,13 +131,13 @@ class PandasModel(QtCore.QAbstractTableModel):
         if self.primary_column_name == "":
             return
         
-        df = pd.read_parquet(self.sourcefile.with_suffix('.parquet').as_posix(), filters=[(self.primary_column_name, '=', int(s))])
+        df = pd.read_parquet(self.parquetfile, filters=[(self.primary_column_name, '=', s)])
         self.beginResetModel()
         self._dataframe = df.copy()
         self.endResetModel()
 
     def refresh(self):
-        df = pd.read_parquet(self.sourcefile.with_suffix('.parquet').as_posix())
+        df = pd.read_parquet(self.parquetfile)
         self.beginResetModel()
         self._dataframe = df.copy()
         self.endResetModel()
@@ -124,7 +159,7 @@ class IndexMenu(QtWidgets.QMenu):
         index_title.setDisabled(True)
         self.addAction(index_title)
 
-        primary = QtGui.QAction("make primary key", self)
+        primary = QtGui.QAction("Set as primary key", self)
         primary.setCheckable(True)
         if index_name == primary_name:
             primary.setChecked(True)
@@ -159,11 +194,11 @@ class DataView(QtWidgets.QTableView):
         self.action_addToShortlist = QtGui.QAction("Add to Shortlist", self, triggered=self.addToShortlist)
 
     @property
-    def table_name(self):
+    def tablename(self):
         return self._table_name
     
-    @table_name.setter
-    def table_name(self, s: str):
+    @tablename.setter
+    def tablename(self, s: str):
         self._table_name = s
 
     def contextMenuEvent(self, event: QtGui.QMouseEvent):
@@ -200,7 +235,7 @@ class DataView(QtWidgets.QTableView):
         menu.sigIndexSetAsPrimaryKey.connect(self.sigPrimaryKeyChanged)    
         menu.popup(QtGui.QCursor().pos())
     
-    @Slot()
+    @Slot() #TODO
     def addToShortlist(self):
         index = self.selectionModel().currentIndex()
         model: PandasModel = self.model()
@@ -210,7 +245,7 @@ class DataView(QtWidgets.QTableView):
 
 
 class DataViewer(QtWidgets.QWidget):
-    sigDatasetImported = Signal(str, str, str)
+    sigDatasetImported = Signal(object)
 
     def __init__(self, project: dict, parent=None):
         super().__init__(parent)
@@ -340,11 +375,11 @@ class DataViewer(QtWidgets.QWidget):
     def connectSignals(self):
         ...
 
-    def createDataView(self, df: pd.DataFrame, sourcefile: Path) -> str:
-        if df is not None:
-            pandas_model = PandasModel(df, sourcefile)
+    def createDataView(self, dataset: DataSet):
+        if dataset is not None:
+            pandas_model = PandasModel(dataset)
             table = DataView()
-            table.table_name = sourcefile.stem.upper()
+            table.tablename = dataset.name
             table.setModel(pandas_model)
             table.updateContextMenu()
             table.resizeColumnsToContents()
@@ -356,10 +391,16 @@ class DataViewer(QtWidgets.QWidget):
 
             subwindow = self.mdi.addSubWindow(table)
 
-            subwindow.setWindowTitle(table.table_name)
+            subwindow.setWindowTitle(table.tablename)
             subwindow.show()
+        
+    def isDatasetLoaded(self, filepath: Path) -> bool:
+        for subwindow in self.mdi.subWindowList():
+            table_name = subwindow.widget().tablename
+            if table_name == filepath.stem.upper():
+                return True
+        return False
 
-            return table.table_name
 
     def selectFiles(self, dir=None, filter=None):
         files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files", directory=dir, filter=filter)
@@ -369,36 +410,31 @@ class DataViewer(QtWidgets.QWidget):
 
             for file in self._sources:
                 filepath = Path(file)
-
-                dataset_loaded = False
-                for subwindow in self.mdi.subWindowList():
-                    table_name = subwindow.widget().table_name
-                    if table_name == filepath.stem.upper():
-                        dataset_loaded = True
-                        break
-
-                if dataset_loaded:
+                
+                if self.isDatasetLoaded(filepath):
                     continue
 
-                df = self.readFile(filepath)
-                if df is None:
+                datasets = self.readFile(filepath)
+                if len(datasets) == 0:
                     return
 
-                headers: list = df.columns.values.tolist()
+                dataset: DataSet
+                for dataset in datasets:
+                    headers: list = dataset.columns.values.tolist()
 
-                if not 'Tags' in headers:
-                    headers.append('Tags')
-                    # df = df.reindex(columns=headers)
-                    df.insert(len(df.columns), 'Tags', None)
+                    if not 'Tags' in headers:
+                        headers.append('Tags')
+                        # df = df.reindex(columns=headers)
+                        dataset.insert(len(dataset.columns), 'Tags', None)
 
-                rootpath = Path(self.project["project_rootpath"])
-                parquetfile = rootpath.joinpath("parquets", filepath.with_suffix(".parquet").name)
-                if df is not None and filepath.parent != parquetfile.parent:
-                    self.save2Parquet(df, parquetfile)
+                    rootpath = Path(self.project["project_rootpath"])
+                    parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
+                    if dataset is not None and filepath.parent != parquetfile.parent:
+                        self.save2Parquet(dataset, parquetfile)
 
-                dataset_name = self.createDataView(df, filepath)
-
-                self.sigDatasetImported.emit(filepath.as_posix(), parquetfile.as_posix(), dataset_name)
+                    dataset.parquet = parquetfile
+                    self.createDataView(dataset)
+                    self.sigDatasetImported.emit(dataset)
 
     @Slot()
     def loadProjectData(self):
@@ -411,30 +447,25 @@ class DataViewer(QtWidgets.QWidget):
                 logger.info(f"File not found: {parquet.as_posix()}")
                 continue
 
-            dataset_loaded = False
-            for subwindow in self.mdi.subWindowList():
-                table_name = subwindow.widget().table_name
-                if table_name == parquet.stem.upper():
-                    dataset_loaded = True
-                    break
-            
             # Skip if dataset already loaded
-            if dataset_loaded:
+            if self.isDatasetLoaded(parquet):
                 continue
             
-            df = self.readFile(parquet)
-            self.createDataView(df, parquet)
+            datasets = self.readFile(parquet)
+            dataset: DataSet = datasets[0]
+            dataset.parquet = parquet
+            self.createDataView(dataset)
     
     @classmethod
-    def readFile(cls, filepath: Path, **kwargs) -> pd.DataFrame|None:
-        """Read file (*.xlsx, *.csv, *.parquet) and return a pandas dataframe"""
-        df: pd.DataFrame = None
-
+    def readFile(cls, filepath: Path, **kwargs) -> list[DataSet]:
+        """Read file (*.xlsx, *.xls, *.csv, *.parquet) and return a pandas dataframe"""
+        dfs = []
         file_type = filepath.suffix.lower()
 
         handlers = {
             '.csv': pd.read_csv,
             '.xlsx': pd.read_excel,
+            '.xls': pd.read_excel,
             '.parquet': pd.read_parquet
         }
 
@@ -443,7 +474,7 @@ class DataViewer(QtWidgets.QWidget):
             logger.error(f"Unsupported file type: {file_type}")
             return None
 
-        if  file_type == '.csv':
+        if  reader == pd.read_csv:
             codecs = ["utf-8", "latin-1"]
             seps = [",", ";"]
             i = 0
@@ -463,10 +494,20 @@ class DataViewer(QtWidgets.QWidget):
                 else:
                     reading = False
                     break
+            dataset = DataSet(filepath.stem.upper(), df)
+            dfs = [dataset]
+        elif reader == pd.read_excel:
+            with pd.ExcelFile(filepath) as xls:
+                for sheet in xls.sheet_names:
+                    df = xls.parse(sheet)
+                    dataset = DataSet(sheet.upper(), df)
+                    dfs.append(dataset)
         else:
             df = reader(filepath, **kwargs)
+            dataset = DataSet(filepath.stem.upper(), df)
+            dfs = [dataset]
 
-        return df
+        return dfs
     
     @classmethod
     def save2Parquet(cls, df: pd.DataFrame, filepath: Path):
@@ -491,8 +532,8 @@ class DataViewer(QtWidgets.QWidget):
         model.dataframe.info(buf=buffer)
         s = buffer.getvalue()
 
-        table_name_label = QtWidgets.QLabel(f"Table name: {table.table_name}")
-        filename_label = QtWidgets.QLabel(f"Filename: {model.sourcefile.as_posix()}")
+        table_name_label = QtWidgets.QLabel(f"Table name: {table.tablename}")
+        filename_label = QtWidgets.QLabel(f"Filename: {model.dataframe.parquet.as_posix()}")
 
         info_text = QtWidgets.QLabel(self)
         info_text.setTextFormat(QtCore.Qt.TextFormat.PlainText)
@@ -500,12 +541,10 @@ class DataViewer(QtWidgets.QWidget):
         info_text.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
         info_text.setText(s.expandtabs(4))
 
-        info_widget = QtWidgets.QWidget(self)
+        info_widget = QtWidgets.QDialog(self)
         info_widget.setWindowTitle("DataFrame Info")
-        info_widget.setWindowFlags(QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.MSWindowsFixedSizeDialogHint)
         vbox = QtWidgets.QVBoxLayout()
         info_widget.setLayout(vbox)
-
 
         vbox.addWidget(table_name_label)
         vbox.addWidget(filename_label)
@@ -641,5 +680,5 @@ class DataViewer(QtWidgets.QWidget):
         """Save dataframe to Parquet file upon closing the dataviewer"""
         for subwindow in self.mdi.subWindowList():
             model: PandasModel = subwindow.widget().model()
-            self.save2Parquet(model.dataframe, model.sourcefile)
+            self.save2Parquet(model.dataframe, model.parquetfile)
         return super().closeEvent(a0)

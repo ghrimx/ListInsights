@@ -1,0 +1,1 @@
+from .listinsight import ListInsight
