@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 class ShortListProxyModel(QtCore.QSortFilterProxyModel):
-
     def __init__(self, model):
         super().__init__()
 
@@ -325,7 +324,6 @@ class ShortListEditor(QtWidgets.QDialog):
         cursor = self.body_editor.textCursor()
         cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
         self.body_editor.setTextCursor(cursor)
-        
 
     def accept(self):
         self._item.body = self.body_editor.toMarkdown()

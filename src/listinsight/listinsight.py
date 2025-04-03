@@ -37,6 +37,8 @@ class ListInsight(QtWidgets.QWidget):
 
     def initUI(self):
         self.vbox = QtWidgets.QVBoxLayout()
+        self.vbox.setSpacing(0)
+        self.vbox.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.vbox )
 
         self.tab_widget = QtWidgets.QTabWidget()

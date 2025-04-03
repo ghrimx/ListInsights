@@ -19,6 +19,7 @@ class DataSet(pd.DataFrame):
         self._name = name
         self._parquet = Path()
         self._uid: str =  ""
+        self._pk_name: str =  ""
     
     @property
     def name(self):
@@ -45,6 +46,20 @@ class DataSet(pd.DataFrame):
     def uid(self, iid: str):
         self._uid = iid
 
+    @property
+    def pk_name(self) -> str:
+        return self._pk_name
+    
+    @pk_name.setter
+    def pk_name(self, name: str):
+        self._pk_name = name
+
+    def pk_type(self):
+        return self[self.pk_name].dtype
+    
+    def pk_loc(self):
+        return self.columns.get_loc(self.pk_name)
+        
     def __str__(self):
         return f"Datasetname={self.name}, parquet={self.parquet.as_posix()}, uid={self.uid})"
 
@@ -52,34 +67,12 @@ class DataSet(pd.DataFrame):
 class PandasModel(QtCore.QAbstractTableModel):
     def __init__(self, dataset: DataSet, parent=None):
         super(PandasModel, self).__init__(parent)
-        self._primary_column_name = ""
-        self._primary_column_index = -1
         self._dataframe: DataSet = dataset
 
     @property
     def dataframe(self):
         return self._dataframe
-    
-    @dataframe.setter
-    def dataframe(self, df: DataSet):
-        self._dataframe = df
-
-    @property
-    def primary_column_name(self):
-        return self._primary_column_name
-    
-    @primary_column_name.setter
-    def primary_column_name(self, s: str):
-        self._primary_column_name = s
-
-    @property
-    def primary_column_index(self):
-        return self._primary_column_index
-    
-    @primary_column_index.setter
-    def primary_column_index(self, i: int):
-        self._primary_column_index = i
-    
+        
     def data(self, index: QtCore.QModelIndex, role: QtCore.Qt.ItemDataRole):
         if not index.isValid():
             return None
@@ -128,24 +121,29 @@ class PandasModel(QtCore.QAbstractTableModel):
         return None
 
     def filter(self, s: str):
-        if self.primary_column_name == "":
+        if self._dataframe.pk_name == "":
             return
         
-        df = pd.read_parquet(self.parquetfile, filters=[(self.primary_column_name, '=', s)])
+        if self._dataframe.pk_type() == 'int64':
+            try:
+                s = int(s)
+            except:
+                return
+        
+        df = pd.read_parquet(self._dataframe.parquet, filters=[(self._dataframe.pk_name, '=', s)])
         self.beginResetModel()
         self._dataframe = df.copy()
         self.endResetModel()
 
     def refresh(self):
-        df = pd.read_parquet(self.parquetfile)
+        df = pd.read_parquet(self._dataframe.parquet)
         self.beginResetModel()
         self._dataframe = df.copy()
         self.endResetModel()
 
     @Slot(str, int)
     def onSetPrimaryIndex(self, name, idx):
-        self.primary_column_name = name
-        self.primary_column_index = idx
+        self._dataframe.pk_name = name
 
 class IndexMenu(QtWidgets.QMenu):
     sigIndexSetAsPrimaryKey = Signal(str, int)
@@ -210,7 +208,7 @@ class DataView(QtWidgets.QTableView):
 
     def updateContextMenu(self):
         model: PandasModel = self.model()
-        if model.primary_column_name == "":
+        if model.dataframe.pk_name == "":
             self.action_openTagMenu.setEnabled(False)
             self.action_addToShortlist.setEnabled(False)
         else:
@@ -229,7 +227,7 @@ class DataView(QtWidgets.QTableView):
         index_name = model.headerData(index.column(),
                                       QtCore.Qt.Orientation.Horizontal,
                                       QtCore.Qt.ItemDataRole.DisplayRole)
-        menu = IndexMenu(index_name, model.primary_column_name,index.column(), self)
+        menu = IndexMenu(index_name, model.dataframe.pk_name, index.column(), self)
         menu.sigIndexSetAsPrimaryKey.connect(model.onSetPrimaryIndex)
         menu.sigIndexSetAsPrimaryKey.connect(self.updateContextMenu)    
         menu.sigIndexSetAsPrimaryKey.connect(self.sigPrimaryKeyChanged)    
@@ -317,7 +315,7 @@ class DataViewer(QtWidgets.QWidget):
         for subwindow in self.mdi.subWindowList():
             model: PandasModel = subwindow.widget().model()
             
-            if model.primary_column_name != "":
+            if model.dataframe.pk_name != "":
                 pks += 1
         
         if pks == len(self.mdi.subWindowList()):
@@ -557,11 +555,8 @@ class DataViewer(QtWidgets.QWidget):
             indexes = selected.indexes()
             model: PandasModel = self.mdi.activeSubWindow().widget().model()
 
-            if model.primary_column_index < 0:
-                return
-
             try:
-                index: QtCore.QModelIndex = indexes[model.primary_column_index]
+                index: QtCore.QModelIndex = indexes[model.dataframe.pk_loc()]
             except:
                 return
             
