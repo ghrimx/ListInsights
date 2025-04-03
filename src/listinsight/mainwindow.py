@@ -9,7 +9,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("MainWindow")
 
-        self.listinsight = ListInsight("C:/Users/debru/Documents/DEMO", "dummy", self)
+        self.listinsight = ListInsight("/home/devdev/Documents/DEMO", "dummy", self)
         # self.listinsight.setShortlistfile('shortlist.json')
         # self.listinsight.setTaggedFile('tagged.json')
 
