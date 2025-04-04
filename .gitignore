@@ -164,4 +164,4 @@ cython_debug/
 test/data
 
 # VScode
-src/.vscode/
+src/.vscode
