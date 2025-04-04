@@ -160,5 +160,5 @@ cython_debug/
 #.idea/
 
 # Sample
-Sample/
+*.zip
 test/data

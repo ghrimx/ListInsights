@@ -5,7 +5,7 @@ from qtpy import QtCore, QtWidgets, Slot
 # from .dataviewer.dataviewer import DataViewer
 # from .dataviewer.dataviewer import DataSet
 from dataviewer.dataviewer import DataSet # for testing
-from dataviewer.dataviewer import DataViewer # for testing
+from dataviewer.dataviewer import DataViewer, Metadata # for testing
 
 from utilities.utils import writeJson, readJson
 
@@ -55,7 +55,8 @@ class ListInsight(QtWidgets.QWidget):
 
         self.dataviewer.shortlister.sigSaveToJson.connect(self.saveShortList)
         self.dataviewer.tag_pane.sigSaveToJson.connect(self.saveTags)
-        self.dataviewer.sigDatasetImported.connect(self.onDatasetImported)
+        self.dataviewer.sigDatasetImported.connect(self.onMetadataChanged)
+        self.dataviewer.sigPrimaryKeyChanged.connect(self.onMetadataChanged)
 
     def createMenubar(self):
         self.menubar = QtWidgets.QMenuBar()
@@ -95,10 +96,10 @@ class ListInsight(QtWidgets.QWidget):
         data, err = readJson(self._tagged_file)
         self.dataviewer.tag_pane.model().load(data.copy(), True)
 
-    @Slot(DataSet)
-    def onDatasetImported(self, dataset: DataSet):
-        datasets: dict = self._project["datasets"]
-        datasets.update({dataset.uid:{"parquet":dataset.parquet.as_posix(), "primary_key": ""}})
+    @Slot(Metadata)
+    def onMetadataChanged(self, metadata: Metadata):
+        datasets_info: dict = self._project["datasets"]
+        datasets_info.update({metadata.dataset_id:{"parquet": metadata.parquet, "primary_key": metadata.primary_key_name}})
         self.saveProject()
        
     @Slot(dict)

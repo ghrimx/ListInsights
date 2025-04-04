@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 from functools import partial
 from qtpy import QtWidgets, QtCore, QtGui, Slot, Signal
+from dataclasses import dataclass
 
 from utilities import config as mconf
 
@@ -13,13 +14,19 @@ from .tagger import Tagger, TagDialog
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class Metadata:
+    primary_key_name: str = ""
+    primary_key_index: int = -1
+    dataset_name: str = ""
+    dataset_id: str = ""
+    parquet: str = ""
+
+
 class DataSet:
     def __init__(self, df: pd.DataFrame, name: str):
         self._dataframe = df
-        self._name = name
-        self._parquet = Path()
-        self._uid: str =  ""
-        self._pk_name: str =  ""
+        self._metadata = Metadata(dataset_name=name)
 
     @property
     def dataframe(self) -> pd.DataFrame:
@@ -31,48 +38,56 @@ class DataSet:
 
     @property
     def name(self):
-        return self._name
+        return self._metadata.dataset_name
     
     @name.setter
     def name(self, sname: str):
-        self._name = sname
+        self._metadata.dataset_name = sname
 
     @property
     def parquet(self):
-        return self._parquet
+        return Path(self._metadata.parquet)
     
     @parquet.setter
     def parquet(self, pfile: Path):
-        self._parquet = pfile
-        self._uid = str(pfile.stat().st_birthtime_ns)
+        self._metadata.parquet = pfile.as_posix()
+        self.uid = str(pfile.stat().st_birthtime_ns)
 
     @property
     def uid(self):
-        return self._uid
+        return self._metadata.dataset_id
     
     @uid.setter
     def uid(self, iid: str):
-        self._uid = iid
+        self._metadata.dataset_id = iid
 
     @property
     def pk_name(self) -> str:
-        return self._pk_name
+        return self._metadata.primary_key_name
     
     @pk_name.setter
     def pk_name(self, name: str):
-        self._pk_name = name
+        self._metadata.primary_key_name = name
+        try:
+            self._metadata.primary_key_index = self.dataframe.columns.get_loc(self.pk_name)
+        except Exception as e:
+            self._metadata.primary_key_index = None
 
+    @property
+    def pk_loc(self):
+        return self._metadata.primary_key_index 
+    
     def pk_type(self):
         return self.dataframe[self.pk_name].dtype
     
-    def pk_loc(self):
-        return self.dataframe.columns.get_loc(self.pk_name)
-    
     def headers(self) -> list[str]:
         return self.dataframe.columns.values.tolist()
+    
+    def metadata(self) -> Metadata:
+        return self._metadata
         
     def __str__(self):
-        return f"Datasetname={self.name}, parquet={self.parquet.as_posix()}, uid={self.uid})"
+        return self.metadata()
 
 
 class PandasModel(QtCore.QAbstractTableModel):
@@ -135,11 +150,14 @@ class PandasModel(QtCore.QAbstractTableModel):
         return None
 
     def filter(self, s: str):
-        print(f"filter: self.dataset.pk_name={self.dataset.pk_name}")
         if self.dataset.pk_name == "":
             return
         
-        
+        if self.dataset.pk_type() == "int64":
+            try:
+                s = int(s)
+            except:
+                return
         
         df = pd.read_parquet(self.dataset.parquet, filters=[(self.dataset.pk_name, '=', s)])
         self.beginResetModel()
@@ -153,7 +171,7 @@ class PandasModel(QtCore.QAbstractTableModel):
         self.endResetModel()
 
     @Slot(str, int)
-    def onSetPrimaryIndex(self, name, idx):
+    def setPrimaryIndex(self, name):
         self.dataset.pk_name = name
 
 class IndexMenu(QtWidgets.QMenu):
@@ -187,7 +205,7 @@ class IndexMenu(QtWidgets.QMenu):
 class DataView(QtWidgets.QTableView):
     sigOpenTagManager = Signal(QtCore.QModelIndex)
     sigAddToShortlist = Signal()
-    sigPrimaryKeyChanged = Signal()
+    sigPrimaryKeyChanged = Signal(Metadata)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -239,22 +257,28 @@ class DataView(QtWidgets.QTableView):
                                       QtCore.Qt.Orientation.Horizontal,
                                       QtCore.Qt.ItemDataRole.DisplayRole)
         menu = IndexMenu(index_name, model.dataset.pk_name, index.column(), self)
-        menu.sigIndexSetAsPrimaryKey.connect(model.onSetPrimaryIndex)
+        menu.sigIndexSetAsPrimaryKey.connect(model.setPrimaryIndex)
         menu.sigIndexSetAsPrimaryKey.connect(self.updateContextMenu)    
-        menu.sigIndexSetAsPrimaryKey.connect(self.sigPrimaryKeyChanged)    
+        menu.sigIndexSetAsPrimaryKey.connect(self.onPrimaryKeyChanged)    
         menu.popup(QtGui.QCursor().pos())
     
     @Slot() #TODO
     def addToShortlist(self):
         index = self.selectionModel().currentIndex()
         model: PandasModel = self.model()
-        pk_value = index.sibling(index.row(), model.dataset.pk_loc()).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        pk_value = index.sibling(index.row(), model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
         print(pk_value)
         self.sigAddToShortlist.emit()
 
+    @Slot()
+    def onPrimaryKeyChanged(self):
+        metadata: Metadata = self.model().dataset.metadata()
+        self.sigPrimaryKeyChanged.emit(metadata)
+
 
 class DataViewer(QtWidgets.QWidget):
-    sigDatasetImported = Signal(object)
+    sigDatasetImported = Signal(Metadata)
+    sigPrimaryKeyChanged = Signal(Metadata)
 
     def __init__(self, project: dict, parent=None):
         super().__init__(parent)
@@ -394,9 +418,11 @@ class DataViewer(QtWidgets.QWidget):
             table.resizeColumnsToContents()
             table.setSortingEnabled(True)
             
+            # Signals
             table.sigOpenTagManager.connect(self.onOpenTagManager)
             table.selectionModel().selectionChanged.connect(self.syncSelectionFilter)
             table.sigPrimaryKeyChanged.connect(self.updateActionState)
+            table.sigPrimaryKeyChanged.connect(self.sigPrimaryKeyChanged)
 
             subwindow = self.mdi.addSubWindow(table)
 
@@ -409,7 +435,11 @@ class DataViewer(QtWidgets.QWidget):
             if table_name == filepath.stem.upper():
                 return True
         return False
-
+    
+    def metadataFromProject(self, dataset_id: str) -> dict:
+        datasets: dict = self.project["datasets"]
+        dataset_metadata: dict = datasets.get(dataset_id)
+        return dataset_metadata
 
     def selectFiles(self, dir=None, filter=None):
         files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files", directory=dir, filter=filter)
@@ -442,8 +472,15 @@ class DataViewer(QtWidgets.QWidget):
                         self.save2Parquet(dataset, parquetfile)
 
                     dataset.parquet = parquetfile
+
+                    metadata: dict = self.metadataFromProject(dataset_id=dataset.uid)
+                    if metadata is not None:
+                        dataset.pk_name = metadata.get("primary_key")
+
                     self.createDataView(dataset)
-                    self.sigDatasetImported.emit(dataset)
+                    self.sigDatasetImported.emit(dataset.metadata())
+                
+            self.updateActionState()
 
     @Slot()
     def loadProjectData(self):
@@ -464,6 +501,12 @@ class DataViewer(QtWidgets.QWidget):
             dataset: DataSet = datasets[0]
             dataset.parquet = parquet
             self.createDataView(dataset)
+
+            metadata: dict = self.metadataFromProject(dataset_id=dataset.uid)
+            if metadata is not None:
+                dataset.pk_name = metadata.get("primary_key")
+        
+        self.updateActionState()
     
     @classmethod
     def readFile(cls, filepath: Path, **kwargs) -> list[DataSet]:
@@ -542,7 +585,11 @@ class DataViewer(QtWidgets.QWidget):
         s = buffer.getvalue()
 
         table_name_label = QtWidgets.QLabel(f"Table name: {table.tablename}")
-        filename_label = QtWidgets.QLabel(f"Filename: {model.dataset.parquet.as_posix()}")
+        table_name_label.setFont(QtGui.QFont("Courier New", 10))
+        filename_label = QtWidgets.QLabel(f"Filename: {model.dataset.parquet}")
+        filename_label.setFont(QtGui.QFont("Courier New", 10))
+        pk_label = QtWidgets.QLabel(f"Primary Key: {model.dataset.pk_name}")
+        pk_label.setFont(QtGui.QFont("Courier New", 10))
 
         info_text = QtWidgets.QLabel(self)
         info_text.setTextFormat(QtCore.Qt.TextFormat.PlainText)
@@ -557,6 +604,7 @@ class DataViewer(QtWidgets.QWidget):
 
         vbox.addWidget(table_name_label)
         vbox.addWidget(filename_label)
+        vbox.addWidget(pk_label)
         vbox.addWidget(info_text)
         info_widget.show()
 
@@ -567,7 +615,7 @@ class DataViewer(QtWidgets.QWidget):
             model: PandasModel = self.mdi.activeSubWindow().widget().model()
 
             try:
-                index: QtCore.QModelIndex = indexes[model.dataset.pk_loc()]
+                index: QtCore.QModelIndex = indexes[model.dataset.pk_loc]
             except:
                 return
             
@@ -595,7 +643,7 @@ class DataViewer(QtWidgets.QWidget):
         table_model: PandasModel = table.model()
 
         tags: str = index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        uid: str = index.sibling(index.row(), table_model.dataset.pk_loc()).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        uid: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
         if tags == 'None':
             self.tag_dialog.tag_list.model().setStringList([])
