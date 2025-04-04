@@ -13,14 +13,22 @@ from .tagger import Tagger, TagDialog
 logger = logging.getLogger(__name__)
 
 
-class DataSet(pd.DataFrame):
-    def __init__(self, name: str, df: pd.DataFrame):
-        super().__init__(df)
+class DataSet:
+    def __init__(self, df: pd.DataFrame, name: str):
+        self._dataframe = df
         self._name = name
         self._parquet = Path()
         self._uid: str =  ""
         self._pk_name: str =  ""
+
+    @property
+    def dataframe(self) -> pd.DataFrame:
+        return self._dataframe
     
+    @dataframe.setter
+    def dataframe(self, df):
+        self._dataframe = df
+
     @property
     def name(self):
         return self._name
@@ -55,30 +63,36 @@ class DataSet(pd.DataFrame):
         self._pk_name = name
 
     def pk_type(self):
-        return self[self.pk_name].dtype
+        return self.dataframe[self.pk_name].dtype
     
     def pk_loc(self):
-        return self.columns.get_loc(self.pk_name)
+        return self.dataframe.columns.get_loc(self.pk_name)
+    
+    def headers(self) -> list[str]:
+        return self.dataframe.columns.values.tolist()
         
     def __str__(self):
         return f"Datasetname={self.name}, parquet={self.parquet.as_posix()}, uid={self.uid})"
 
 
 class PandasModel(QtCore.QAbstractTableModel):
-    def __init__(self, dataset: DataSet, parent=None):
+    def __init__(self, dset: DataSet, parent=None):
         super(PandasModel, self).__init__(parent)
-        self._dataframe: DataSet = dataset
+        self._dataset: DataSet = dset
 
     @property
+    def dataset(self):
+        return self._dataset
+    
     def dataframe(self):
-        return self._dataframe
+        return self._dataset.dataframe
         
     def data(self, index: QtCore.QModelIndex, role: QtCore.Qt.ItemDataRole):
         if not index.isValid():
             return None
 
         if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            return str(self._dataframe.iloc[index.row(), index.column()])
+            return str(self.dataset.dataframe.iloc[index.row(), index.column()])
 
         return None
 
@@ -89,20 +103,20 @@ class PandasModel(QtCore.QAbstractTableModel):
         if isinstance(value, list):
             value = ','.join(value)
 
-        self.dataframe.iloc[index.row(), index.column()] = value
+        self.dataset.dataframe.iloc[index.row(), index.column()] = value
         self.dataChanged.emit(index, index,
                                 [QtCore.Qt.ItemDataRole.DisplayRole, QtCore.Qt.ItemDataRole.EditRole])
         return True          
     
     def rowCount(self, index) -> int:
         if index == QtCore.QModelIndex():
-            return len(self.dataframe)
+            return len(self.dataset.dataframe)
 
         return 0
 
     def columnCount(self, index) -> int:
         if index == QtCore.QModelIndex():
-            return len(self.dataframe.columns)
+            return len(self.dataset.headers())
 
         return 0
     
@@ -113,37 +127,34 @@ class PandasModel(QtCore.QAbstractTableModel):
         """
         if role == QtCore.Qt.ItemDataRole.DisplayRole:
             if orientation == QtCore.Qt.Orientation.Horizontal:
-                return str(self._dataframe.columns[section])
+                return str(self.dataset.dataframe.columns[section])
 
             if orientation == QtCore.Qt.Orientation.Vertical:
-                return str(self._dataframe.index[section])
+                return str(self.dataset.dataframe.index[section])
 
         return None
 
     def filter(self, s: str):
-        if self._dataframe.pk_name == "":
+        print(f"filter: self.dataset.pk_name={self.dataset.pk_name}")
+        if self.dataset.pk_name == "":
             return
         
-        if self._dataframe.pk_type() == 'int64':
-            try:
-                s = int(s)
-            except:
-                return
         
-        df = pd.read_parquet(self._dataframe.parquet, filters=[(self._dataframe.pk_name, '=', s)])
+        
+        df = pd.read_parquet(self.dataset.parquet, filters=[(self.dataset.pk_name, '=', s)])
         self.beginResetModel()
-        self._dataframe = df.copy()
+        self.dataset.dataframe = df.copy()
         self.endResetModel()
 
     def refresh(self):
-        df = pd.read_parquet(self._dataframe.parquet)
+        df = pd.read_parquet(self.dataset.parquet)
         self.beginResetModel()
-        self._dataframe = df.copy()
+        self.dataset.dataframe = df.copy()
         self.endResetModel()
 
     @Slot(str, int)
     def onSetPrimaryIndex(self, name, idx):
-        self._dataframe.pk_name = name
+        self.dataset.pk_name = name
 
 class IndexMenu(QtWidgets.QMenu):
     sigIndexSetAsPrimaryKey = Signal(str, int)
@@ -208,7 +219,7 @@ class DataView(QtWidgets.QTableView):
 
     def updateContextMenu(self):
         model: PandasModel = self.model()
-        if model.dataframe.pk_name == "":
+        if model.dataset.pk_name == "":
             self.action_openTagMenu.setEnabled(False)
             self.action_addToShortlist.setEnabled(False)
         else:
@@ -227,7 +238,7 @@ class DataView(QtWidgets.QTableView):
         index_name = model.headerData(index.column(),
                                       QtCore.Qt.Orientation.Horizontal,
                                       QtCore.Qt.ItemDataRole.DisplayRole)
-        menu = IndexMenu(index_name, model.dataframe.pk_name, index.column(), self)
+        menu = IndexMenu(index_name, model.dataset.pk_name, index.column(), self)
         menu.sigIndexSetAsPrimaryKey.connect(model.onSetPrimaryIndex)
         menu.sigIndexSetAsPrimaryKey.connect(self.updateContextMenu)    
         menu.sigIndexSetAsPrimaryKey.connect(self.sigPrimaryKeyChanged)    
@@ -237,7 +248,7 @@ class DataView(QtWidgets.QTableView):
     def addToShortlist(self):
         index = self.selectionModel().currentIndex()
         model: PandasModel = self.model()
-        pk_value = index.sibling(index.row(), model.primary_column_index).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        pk_value = index.sibling(index.row(), model.dataset.pk_loc()).data(QtCore.Qt.ItemDataRole.DisplayRole)
         print(pk_value)
         self.sigAddToShortlist.emit()
 
@@ -282,8 +293,8 @@ class DataViewer(QtWidgets.QWidget):
 
     def createActions(self):
         self.action_load_project_data = QtGui.QAction(QtGui.QIcon(":archive-stack-line"),"Load project dataset",
-                                                self,
-                                                triggered=self.loadProjectData)
+                                                      self,
+                                                      triggered=self.loadProjectData)
         self.action_import_data = QtGui.QAction(QtGui.QIcon(":import-line"),"Import new dataset",
                                                 self,
                                                 triggered=lambda: self.selectFiles(filter="*.csv *.xlsx *.parquet"))
@@ -315,7 +326,7 @@ class DataViewer(QtWidgets.QWidget):
         for subwindow in self.mdi.subWindowList():
             model: PandasModel = subwindow.widget().model()
             
-            if model.dataframe.pk_name != "":
+            if model.dataset.pk_name != "":
                 pks += 1
         
         if pks == len(self.mdi.subWindowList()):
@@ -418,12 +429,12 @@ class DataViewer(QtWidgets.QWidget):
 
                 dataset: DataSet
                 for dataset in datasets:
-                    headers: list = dataset.columns.values.tolist()
+                    headers: list = dataset.headers()
 
                     if not 'Tags' in headers:
                         headers.append('Tags')
                         # df = df.reindex(columns=headers)
-                        dataset.insert(len(dataset.columns), 'Tags', None)
+                        dataset.dataframe.insert(len(dataset.headers()), 'Tags', None)
 
                     rootpath = Path(self.project["project_rootpath"])
                     parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
@@ -492,17 +503,17 @@ class DataViewer(QtWidgets.QWidget):
                 else:
                     reading = False
                     break
-            dataset = DataSet(filepath.stem.upper(), df)
+            dataset = DataSet(df, filepath.stem.upper())
             dfs = [dataset]
         elif reader == pd.read_excel:
             with pd.ExcelFile(filepath) as xls:
                 for sheet in xls.sheet_names:
                     df = xls.parse(sheet)
-                    dataset = DataSet(sheet.upper(), df)
+                    dataset = DataSet(df, sheet.upper())
                     dfs.append(dataset)
         else:
             df = reader(filepath, **kwargs)
-            dataset = DataSet(filepath.stem.upper(), df)
+            dataset = DataSet(df, filepath.stem.upper())
             dfs = [dataset]
 
         return dfs
@@ -527,11 +538,11 @@ class DataViewer(QtWidgets.QWidget):
         buffer = io.StringIO()
         table: DataView = active_subwindow.widget()
         model: PandasModel = table.model()
-        model.dataframe.info(buf=buffer)
+        model.dataframe().info(buf=buffer)
         s = buffer.getvalue()
 
         table_name_label = QtWidgets.QLabel(f"Table name: {table.tablename}")
-        filename_label = QtWidgets.QLabel(f"Filename: {model.dataframe.parquet.as_posix()}")
+        filename_label = QtWidgets.QLabel(f"Filename: {model.dataset.parquet.as_posix()}")
 
         info_text = QtWidgets.QLabel(self)
         info_text.setTextFormat(QtCore.Qt.TextFormat.PlainText)
@@ -556,7 +567,7 @@ class DataViewer(QtWidgets.QWidget):
             model: PandasModel = self.mdi.activeSubWindow().widget().model()
 
             try:
-                index: QtCore.QModelIndex = indexes[model.dataframe.pk_loc()]
+                index: QtCore.QModelIndex = indexes[model.dataset.pk_loc()]
             except:
                 return
             
@@ -584,7 +595,7 @@ class DataViewer(QtWidgets.QWidget):
         table_model: PandasModel = table.model()
 
         tags: str = index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        uid: str = index.sibling(index.row(), table_model.primary_column_index).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        uid: str = index.sibling(index.row(), table_model.dataset.pk_loc()).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
         if tags == 'None':
             self.tag_dialog.tag_list.model().setStringList([])
@@ -617,7 +628,7 @@ class DataViewer(QtWidgets.QWidget):
         for i, window in enumerate(windows):
             child: DataView = window.widget()
 
-            f = child.table_name
+            f = child.tablename
             text = f'{i + 1} {f}'
             if i < 9:
                 text = '&' + text
@@ -675,5 +686,5 @@ class DataViewer(QtWidgets.QWidget):
         """Save dataframe to Parquet file upon closing the dataviewer"""
         for subwindow in self.mdi.subWindowList():
             model: PandasModel = subwindow.widget().model()
-            self.save2Parquet(model.dataframe, model.parquetfile)
+            self.save2Parquet(model.dataframe(), model.dataset.parquet)
         return super().closeEvent(a0)

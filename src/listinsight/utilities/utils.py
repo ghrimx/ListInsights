@@ -1,5 +1,4 @@
 import json
-from pathlib import Path, WindowsPath
 
 from qtpy import QtCore
 
