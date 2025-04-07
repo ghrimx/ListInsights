@@ -123,7 +123,7 @@ class ShortListModel(QtCore.QAbstractItemModel):
     def columnCount(self, parent=QtCore.QModelIndex()):
         return 1
 
-    def getItem(self, index: QtCore.QModelIndex):
+    def getItem(self, index: QtCore.QModelIndex) -> ShortListItem:
         if not index.isValid():
             return None
         
@@ -427,7 +427,7 @@ class ShortLister(QtWidgets.QWidget):
 
     @Slot(str, str)
     def addShortlistItem(self, title: str = "", tags: str = ""):
-        item = ShortListItem("", title, tags)
+        item = ShortListItem("", title, tags.split(","))
         self.editor = ShortListEditor(item, self)
 
         if self.editor.exec():

@@ -689,10 +689,7 @@ class DataViewer(QtWidgets.QWidget):
         index = table.selectionModel().currentIndex()
 
         primary_key: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        logger.debug(f"primary_key={primary_key}, tagname={tagname}")
-        print(primary_key)
-        print(tagname)
-        self.tag_pane.model().add2Tag(primary_key, tagname)
+        self.tag_pane.model().add2Tag([primary_key], tagname)
 
                 
     @Slot()

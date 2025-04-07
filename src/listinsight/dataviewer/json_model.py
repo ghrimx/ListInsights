@@ -1,6 +1,6 @@
 from qtpy import QtCore
 from typing import Any
-from qtpy import Slot
+
 
 class TreeItem:
     """A Json item corresponding to a line in QTreeView"""
@@ -30,7 +30,7 @@ class TreeItem:
     def row(self) -> int:
         """Return the row where the current item occupies in the parent"""
         return self._parent._children.index(self) if self._parent else 0
-
+    
     @property
     def value(self) -> str:
         """Return the value name of the current item"""
@@ -133,18 +133,11 @@ class JsonModel(QtCore.QAbstractItemModel):
         if not index.isValid():
             return None
 
-        item = index.internalPointer()
-
-        if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            # if index.column() == 0:
-            #     return item.key
-
-            # if index.column() == 1:
-            return item.value
-
-        elif role == QtCore.Qt.ItemDataRole.EditRole:
-            # if index.column() == 1:
-            return item.value
+        if role != QtCore.Qt.ItemDataRole.DisplayRole and role != QtCore.Qt.ItemDataRole.EditRole:
+            return None
+        
+        item: TreeItem = index.internalPointer()
+        return item.value
 
     def setData(self, index: QtCore.QModelIndex, value: Any, role: QtCore.Qt.ItemDataRole):
         """Override from QAbstractItemModel
@@ -158,8 +151,7 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         """
         if role == QtCore.Qt.ItemDataRole.EditRole:
-            # if index.column() == 1:
-            item = index.internalPointer()
+            item: TreeItem = index.internalPointer()
             item.value = str(value)
 
             self.dataChanged.emit(index, index, [QtCore.Qt.ItemDataRole.EditRole])
@@ -212,7 +204,7 @@ class JsonModel(QtCore.QAbstractItemModel):
         if not index.isValid():
             return QtCore.QModelIndex()
 
-        childItem = index.internalPointer()
+        childItem: TreeItem = index.internalPointer()
         parentItem = childItem.parent()
 
         if parentItem == self._rootItem:
@@ -247,12 +239,10 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         Return flags of index
         """
-        flags = super(JsonModel, self).flags(index)
+        if not index.isValid():
+            return QtCore.Qt.ItemFlag.NoItemFlags
 
-        # if index.column() == 1:
-        return QtCore.Qt.ItemFlag.ItemIsEditable | flags
-        # else:
-        #     return flags
+        return QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.QAbstractItemModel.flags(self, index)
 
     def to_json(self, item=None):
 
@@ -277,15 +267,4 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         else:
             return item.value
-
-    @Slot(str, str)
-    def add2Tag(self, value: str, tagname: str):
-        item = self._rootItem
-
-        nchild = item.childCount()
-        for i in range(nchild):
-            ch = item.child(i)
-            print(ch.value)
-            if tagname == ch.value:
-                child_item = TreeItem.load(value, ch)
-
+        
