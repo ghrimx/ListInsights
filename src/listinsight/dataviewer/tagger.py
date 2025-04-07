@@ -2,6 +2,8 @@ import logging
 from qtpy import QtCore, QtWidgets, Signal, Slot
 from utilities import config as mconf
 
+from dataviewer.json_model import JsonModel
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,14 +62,14 @@ class TagModel(QtCore.QAbstractListModel):
     def prependItem(self, tag: TagItem):
         new_index = 0
         self.beginInsertRows(QtCore.QModelIndex(), new_index, new_index)
-        self._tags.insert(new_index, tag)
+        # self._tags.insert(new_index, tag)
         self.endInsertRows()
         return tag
 
     def appendItem(self, tag: TagItem):
         new_index = len(self._tags)
         self.beginInsertRows(QtCore.QModelIndex(), new_index, new_index)
-        self._tags.append(tag)
+        # self._tags.append(tag)
         self.endInsertRows()
         return tag
 
@@ -101,15 +103,22 @@ class TagModel(QtCore.QAbstractListModel):
                 return tag
         
         return None
+
+    def addTags(self, value: str, tags: list):
+
+        ...
+
     
-    def addToItem(self, tagname: str, value):
+    def addToItem(self, tagname: str, value: str):
+        """Add value to a tag item using its tagname"""
         for tag in self.tags():
             if tag.name == tagname:
                 tag.addValue(value)
 
-    def addTag(self, tagname: str, value):
-        tag = TagItem(tagname, [value])
+    def addTag(self, tagname: str, value: str):
+        tag = TagItem(tagname)
         self.appendItem(tag)
+        tag.addValue(value)
 
     def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
@@ -188,6 +197,9 @@ class TagListview(QtWidgets.QListView):
 
 
 class TagDialog(QtWidgets.QDialog):
+    sigAdd2tag = Signal(str)
+    sigRemoveTag = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         tags: list = mconf.settings.value("tags", [], list)
@@ -246,6 +258,8 @@ class TagDialog(QtWidgets.QDialog):
         if tag not in data_tags:
             data_tags.append(tag)
             self.tag_list_model.setStringList(data_tags)
+            print("here")
+            self.sigAdd2tag.emit(tag)
 
 
 class Tagger(QtWidgets.QWidget):
@@ -253,7 +267,8 @@ class Tagger(QtWidgets.QWidget):
 
     def __init__(self, parent = None):
         super().__init__(parent)
-        self._model = TagModel()
+        # self._model = TagModel()
+        self._model = JsonModel()
         self._model.dataChanged.connect(self.saveTagged)
         self._model.rowsInserted.connect(self.saveTagged)
         self.initUI()
@@ -263,8 +278,10 @@ class Tagger(QtWidgets.QWidget):
         self.setLayout(vbox)
 
         # Tag listview
-        self.tag_listview = TagListview()
+        # self.tag_listview = TagListview()
+        self.tag_listview = QtWidgets.QTreeView()
         self.tag_listview.setModel(self._model)
+        self.tag_listview.hideColumn(1)
 
         vbox.addWidget(self.tag_listview)
 
@@ -273,7 +290,7 @@ class Tagger(QtWidgets.QWidget):
     
     @Slot()
     def saveTagged(self):
-        doc = self.model().toJson()
+        doc = self.model().to_json()
         self.sigSaveToJson.emit(doc)
 
 

@@ -51,7 +51,11 @@ class DataSet:
     @parquet.setter
     def parquet(self, pfile: Path):
         self._metadata.parquet = pfile.as_posix()
-        self.uid = str(pfile.stat().st_birthtime_ns)
+
+        try:
+            self.uid = str(pfile.stat().st_birthtime_ns)
+        except AttributeError as e:
+            self.uid = str(pfile.stat().st_mtime)
 
     @property
     def uid(self):
@@ -204,7 +208,7 @@ class IndexMenu(QtWidgets.QMenu):
 
 class DataView(QtWidgets.QTableView):
     sigOpenTagManager = Signal(QtCore.QModelIndex)
-    sigAddToShortlist = Signal()
+    sigAddToShortlist = Signal(str, str)
     sigPrimaryKeyChanged = Signal(Metadata)
 
     def __init__(self, parent=None):
@@ -264,11 +268,14 @@ class DataView(QtWidgets.QTableView):
     
     @Slot() #TODO
     def addToShortlist(self):
-        index = self.selectionModel().currentIndex()
+        index: QtCore.QModelIndex = self.selectionModel().currentIndex()
+
         model: PandasModel = self.model()
         pk_value = index.sibling(index.row(), model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        tags = index.sibling(index.row(), model.dataframe().columns.get_loc("Tags")).data(QtCore.Qt.ItemDataRole.DisplayRole)
         print(pk_value)
-        self.sigAddToShortlist.emit()
+        print(tags)
+        self.sigAddToShortlist.emit(pk_value, tags)
 
     @Slot()
     def onPrimaryKeyChanged(self):
@@ -407,6 +414,7 @@ class DataViewer(QtWidgets.QWidget):
 
     def connectSignals(self):
         ...
+        # self.shortlister.sigTagsEdited.connect(self.tag_pane.)
 
     def createDataView(self, dataset: DataSet):
         if dataset is not None:
@@ -423,6 +431,7 @@ class DataViewer(QtWidgets.QWidget):
             table.selectionModel().selectionChanged.connect(self.syncSelectionFilter)
             table.sigPrimaryKeyChanged.connect(self.updateActionState)
             table.sigPrimaryKeyChanged.connect(self.sigPrimaryKeyChanged)
+            table.sigAddToShortlist.connect(self.shortlister.addShortlistItem)
 
             subwindow = self.mdi.addSubWindow(table)
 
@@ -469,7 +478,10 @@ class DataViewer(QtWidgets.QWidget):
                     rootpath = Path(self.project["project_rootpath"])
                     parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
                     if dataset is not None and filepath.parent != parquetfile.parent:
-                        self.save2Parquet(dataset, parquetfile)
+                        saved_to_parquet  = self.save2Parquet(dataset.dataframe, parquetfile)
+
+                    if not saved_to_parquet:
+                        return
 
                     dataset.parquet = parquetfile
 
@@ -500,11 +512,12 @@ class DataViewer(QtWidgets.QWidget):
             datasets = self.readFile(parquet)
             dataset: DataSet = datasets[0]
             dataset.parquet = parquet
-            self.createDataView(dataset)
 
             metadata: dict = self.metadataFromProject(dataset_id=dataset.uid)
             if metadata is not None:
                 dataset.pk_name = metadata.get("primary_key")
+
+            self.createDataView(dataset)
         
         self.updateActionState()
     
@@ -562,11 +575,12 @@ class DataViewer(QtWidgets.QWidget):
         return dfs
     
     @classmethod
-    def save2Parquet(cls, df: pd.DataFrame, filepath: Path):
+    def save2Parquet(cls, df: pd.DataFrame, filepath: Path) -> bool:
         """Save pandas dataframe to Apache Parquet file"""
         try:
             df.to_parquet(filepath.with_suffix('.parquet').as_posix())
         except Exception as e:
+            logger.error(e)
             return False
         else:
             return True
@@ -638,31 +652,48 @@ class DataViewer(QtWidgets.QWidget):
     def onOpenTagManager(self, index: QtCore.QModelIndex):
         if self.tag_dialog is None:
             self.tag_dialog = TagDialog()
+            self.tag_dialog.sigAdd2tag.connect(self.add2Tag)
 
         table: DataView = self.mdi.activeSubWindow().widget()
         table_model: PandasModel = table.model()
 
         tags: str = index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        uid: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        primary_key: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
         if tags == 'None':
             self.tag_dialog.tag_list.model().setStringList([])
         else:
             self.tag_dialog.tag_list.model().setStringList(tags.split(","))
 
-        if self.tag_dialog.exec():
-            tag_list = self.tag_dialog.tag_list.model().stringList()
+        self.tag_dialog.exec()
+            
+            # tag_list = self.tag_dialog.tag_list.model().stringList()
 
-            if len(tag_list) > 0:
-                table.model().setData(index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1),
-                                      tag_list,
-                                      QtCore.Qt.ItemDataRole.EditRole)   
+            # if len(tag_list) > 0:
+            #     table.model().setData(index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1),
+            #                           tag_list,
+            #                           QtCore.Qt.ItemDataRole.EditRole)   
 
-                for tagname in tag_list:
-                    if tagname in self.tag_pane.model().tagnames():
-                        self.tag_pane.model().addToItem(tagname, uid)
-                    else:
-                        self.tag_pane.model().addTag(tagname, uid)
+            #     self.tag_pane.model().addTags(primary_key, tag_list)
+
+            #     for tagname in tag_list:
+            #         if tagname in self.tag_pane.model().tagnames():
+            #             self.tag_pane.model().addToItem(tagname, primary_key)
+            #         else:
+            #             self.tag_pane.model().addTag(tagname, primary_key)
+    
+    @Slot(str)
+    def add2Tag(self, tagname: str):
+        table: DataView = self.mdi.activeSubWindow().widget()
+        table_model: PandasModel = table.model()
+        index = table.selectionModel().currentIndex()
+
+        primary_key: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        logger.debug(f"primary_key={primary_key}, tagname={tagname}")
+        print(primary_key)
+        print(tagname)
+        self.tag_pane.model().add2Tag(primary_key, tagname)
+
                 
     @Slot()
     def update_window_menu(self):

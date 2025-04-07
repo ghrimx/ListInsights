@@ -313,11 +313,16 @@ class ShortListEditor(QtWidgets.QDialog):
         self.setLayout(vbox)
 
         self.title_lineedit = QtWidgets.QLineEdit()
+        self.title_lineedit.setPlaceholderText("title...")
         self.title_lineedit.setText(self._item.title)
+        self.tags_lineedit = QtWidgets.QLineEdit()
+        self.tags_lineedit.setPlaceholderText("Tags...")
+        self.tags_lineedit.setText(",".join(self._item.tags))
         self.body_editor = QtWidgets.QTextEdit()
         self.body_editor.setMarkdown(self._item.body)
 
         vbox.addWidget(self.title_lineedit)
+        vbox.addWidget(self.tags_lineedit)
         vbox.addWidget(self.body_editor)
         vbox.addWidget(self.buttonBox)
         self.body_editor.setFocus()
@@ -328,6 +333,7 @@ class ShortListEditor(QtWidgets.QDialog):
     def accept(self):
         self._item.body = self.body_editor.toMarkdown()
         self._item.title = self.title_lineedit.text()
+        self._item.tags = self.tags_lineedit.text().split(",")
         return super().accept()
         
     def item(self):
@@ -335,6 +341,7 @@ class ShortListEditor(QtWidgets.QDialog):
     
 class ShortLister(QtWidgets.QWidget):
     sigSaveToJson = Signal(dict)
+    sigTagsEdited = Signal(str)
 
     def __init__(self, parent = None):
         super().__init__(parent)
@@ -364,7 +371,7 @@ class ShortLister(QtWidgets.QWidget):
         # Add/Remove buttons
         add_btn = QtWidgets.QToolButton()
         add_btn.setIcon(QtGui.QIcon(":add-box"))
-        add_btn.clicked.connect(self.addShortlistItem)
+        add_btn.clicked.connect(self.newShortlistItem)
         remove_btn = QtWidgets.QToolButton()
         remove_btn.setIcon(QtGui.QIcon(":delete-bin2"))
         remove_btn.clicked.connect(self.removeShortlistItem)
@@ -399,27 +406,39 @@ class ShortLister(QtWidgets.QWidget):
         self.editor = ShortListEditor(item, self)
 
         if self.editor.exec():
-            isModified = self.editor.body_editor.document().isModified() or self.editor.title_lineedit.isModified()
+            body_modified = self.editor.body_editor.document().isModified()
+            title_modified = self.editor.title_lineedit.isModified()
+            tags_modified = self.editor.tags_lineedit.isModified()
+            isModified = body_modified or title_modified or tags_modified
             notEmpty = self.editor.body_editor.toPlainText() != "" and self.editor.title_lineedit.text() != ""
 
             if isModified and notEmpty:
                 item = self.editor.item()
                 self.model().setData(src_index, item, QtCore.Qt.ItemDataRole.EditRole)
                 self.saveShortList()
+            
+                #TODO: Append or Remove tags
+                if tags_modified and self.editor.tags_lineedit.text().strip() != "":
+                    self.sigTagsEdited.emit(self.editor.title_lineedit.text().strip(), self.editor.tags_lineedit.text().strip())
 
     @Slot()
-    def addShortlistItem(self):
-        item = ShortListItem("", "")
+    def newShortlistItem(self):
+        self.addShortlistItem()
+
+    @Slot(str, str)
+    def addShortlistItem(self, title: str = "", tags: str = ""):
+        item = ShortListItem("", title, tags)
         self.editor = ShortListEditor(item, self)
 
         if self.editor.exec():
-            isModified = self.editor.body_editor.document().isModified() or self.editor.title_lineedit.isModified()
-            notEmpty = self.editor.body_editor.toPlainText() != "" and self.editor.title_lineedit.text() != ""
-
-            if isModified and notEmpty:
+            if self.editor.title_lineedit.text().strip() != "":
                 item = self.editor.item()
                 self.model().appendItem(item)
                 self.saveShortList()
+            
+                #TODO: Append or Remove tags
+                if self.editor.tags_lineedit.isModified() and self.editor.tags_lineedit.text().strip() != "":
+                    self.sigTagsEdited.emit(self.editor.title_lineedit.text().strip(), self.editor.tags_lineedit.text().strip())
 
     @Slot()
     def removeShortlistItem(self):

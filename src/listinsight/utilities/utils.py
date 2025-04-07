@@ -34,4 +34,3 @@ def readJson(json_file: str) -> tuple[dict, str]:
                 err = f"Error: {json_file} not found."
                 return {}, err
 
- 

@@ -94,7 +94,8 @@ class ListInsight(QtWidgets.QWidget):
 
     def loadTagger(self):
         data, err = readJson(self._tagged_file)
-        self.dataviewer.tag_pane.model().load(data.copy(), True)
+        # self.dataviewer.tag_pane.model().load(data.copy(), True)
+        self.dataviewer.tag_pane.model().load(data.copy())
 
     @Slot(Metadata)
     def onMetadataChanged(self, metadata: Metadata):
