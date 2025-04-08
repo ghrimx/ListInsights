@@ -1,16 +1,35 @@
 import logging
 from pathlib import Path
-from qtpy import QtCore, QtWidgets, Slot
+from qtpy import QtCore, QtWidgets, Slot, QtGui
 
 # from .dataviewer.dataviewer import DataViewer
-# from .dataviewer.dataviewer import DataSet
-from dataviewer.dataviewer import DataSet # for testing
 from dataviewer.dataviewer import DataViewer, Metadata # for testing
+
+from dataviewer.json_model import JsonModel
 
 from utilities.utils import writeJson, readJson
 
 logger = logging.getLogger(__name__)
 
+
+class ProjectInfo(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Project Info")
+        self.model = JsonModel()
+        self.view = QtWidgets.QTreeView()
+        self.view.setModel(self.model)
+        
+        vbox = QtWidgets.QVBoxLayout()
+        self.setLayout(vbox)
+        vbox.addWidget(self.view)
+
+    def load(self, data: dict):
+        self.model.load(data)
+        self.view.resizeColumnToContents(0)
+        self.view.resizeColumnToContents(1)
+        self.view.expandAll()
+        self.resize(self.view.width(), self.view.height())
 
 class ListInsight(QtWidgets.QWidget):
     def __init__(self, rootpath: str = "", project_name: str = "", parent = None):
@@ -24,7 +43,7 @@ class ListInsight(QtWidgets.QWidget):
         self.initUI()
 
     def initUI(self):
-        self.vbox = QtWidgets.QVBoxLayout()
+        self.vbox = QtWidgets.QHBoxLayout()
         self.vbox.setSpacing(0)
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.vbox )
@@ -48,12 +67,44 @@ class ListInsight(QtWidgets.QWidget):
         self.dataviewer.sigLoadProject.connect(self.loadProject)
         self.dataviewer.sigNewProject.connect(self.createProject)
 
+        self.createMenubar()
+        self.initDialogs()
+
     def createMenubar(self):
-        self.menubar = QtWidgets.QMenuBar()
-        self.vbox.insertWidget(0, self.menubar)
+        self.toolbar = QtWidgets.QToolBar()
+        self.toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.toolbar.setOrientation(QtCore.Qt.Orientation.Vertical)
+        self.vbox.insertWidget(0, self.toolbar)
+        
+        self.action_new_project = QtGui.QAction(QtGui.QIcon(":archive-2"),
+                                                "New project",
+                                                self,
+                                                triggered=self.createProject)
+        self.action_load_project = QtGui.QAction(QtGui.QIcon(":archive-stack-line"),
+                                                 "Load project",
+                                                 self,
+                                                 triggered=self.loadProject)
+        self.action_import_data = QtGui.QAction(QtGui.QIcon(":import-line"),"Import new dataset",
+                                                self,
+                                                triggered=lambda: self.dataviewer.selectFiles(filter="*.csv *.xlsx *.parquet"))
+        self.action_import_data.setDisabled(True)
+        self.action_projectInfo = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.projectInfo)
 
-        self.menubar.addMenu("File")
+        self.toolbar.addAction(self.action_new_project)
+        self.toolbar.addAction(self.action_load_project)
+        self.toolbar.addAction(self.action_import_data)
+        self.toolbar.addAction(self.action_projectInfo)
+    
+    def initDialogs(self):
+        self.info_dialog: ProjectInfo = None
 
+    def projectInfo(self):
+        if self.info_dialog is None:
+            self.info_dialog = ProjectInfo()
+
+        self.info_dialog.load(self._project)
+        self.info_dialog.exec()
+ 
     def selectProject(self):
         file = QtWidgets.QFileDialog.getOpenFileName(caption="Select Project file",
                                                      directory=self._rootpath.as_posix(),
@@ -134,7 +185,8 @@ class ListInsight(QtWidgets.QWidget):
 
     def loadProject(self):
         if not self._project_file.exists():
-            return
+            if not self.selectProject():
+                return
 
         self._project, err = readJson(self._project_file.as_posix())
 

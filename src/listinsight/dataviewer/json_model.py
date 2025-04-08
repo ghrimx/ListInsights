@@ -7,6 +7,7 @@ class TreeItem:
 
     def __init__(self, parent: "TreeItem" = None):
         self._parent = parent
+        self._key = ""
         self._value = ""
         self._value_type = None
         self._children = []
@@ -30,7 +31,17 @@ class TreeItem:
     def row(self) -> int:
         """Return the row where the current item occupies in the parent"""
         return self._parent._children.index(self) if self._parent else 0
-    
+
+    @property
+    def key(self) -> str:
+        """Return the key name"""
+        return self._key
+
+    @key.setter
+    def key(self, key: str):
+        """Set key name of the current item"""
+        self._key = key
+
     @property
     def value(self) -> str:
         """Return the value name of the current item"""
@@ -68,19 +79,21 @@ class TreeItem:
             TreeItem: TreeItem
         """
         rootItem = TreeItem(parent)
+        rootItem.key = "root"
 
         if isinstance(value, dict):
             items = sorted(value.items()) if sort else value.items()
 
             for key, value in items:
                 child = cls.load(value, rootItem)
-                child.value = key
+                child.key = key
                 child.value_type = type(value)
                 rootItem.appendChild(child)
 
         elif isinstance(value, list):
             for index, value in enumerate(value):
                 child = cls.load(value, rootItem)
+                child.key = index
                 child.value_type = type(value)
                 rootItem.appendChild(child)
 
@@ -98,7 +111,7 @@ class JsonModel(QtCore.QAbstractItemModel):
         super().__init__(parent)
 
         self._rootItem = TreeItem()
-        self._headers = ["Name"]
+        self._headers = ("key", "value")
 
     def clear(self):
         """ Clear data from the model """
@@ -124,7 +137,7 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         return True
 
-    def data(self, index: QtCore.QModelIndex, role: QtCore.Qt.ItemDataRole):
+    def data(self, index: QtCore.QModelIndex, role: QtCore.Qt.ItemDataRole) -> Any:
         """Override from QAbstractItemModel
 
         Return data from a json item according index and role
@@ -133,11 +146,18 @@ class JsonModel(QtCore.QAbstractItemModel):
         if not index.isValid():
             return None
 
-        if role != QtCore.Qt.ItemDataRole.DisplayRole and role != QtCore.Qt.ItemDataRole.EditRole:
-            return None
-        
-        item: TreeItem = index.internalPointer()
-        return item.value
+        item = index.internalPointer()
+
+        if role == QtCore.Qt.ItemDataRole.DisplayRole:
+            if index.column() == 0:
+                return item.key
+
+            if index.column() == 1:
+                return item.value
+
+        elif role == QtCore.Qt.ItemDataRole.EditRole:
+            if index.column() == 1:
+                return item.value
 
     def setData(self, index: QtCore.QModelIndex, value: Any, role: QtCore.Qt.ItemDataRole):
         """Override from QAbstractItemModel
@@ -151,16 +171,19 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         """
         if role == QtCore.Qt.ItemDataRole.EditRole:
-            item: TreeItem = index.internalPointer()
-            item.value = str(value)
+            if index.column() == 1:
+                item = index.internalPointer()
+                item.value = str(value)
 
-            self.dataChanged.emit(index, index, [QtCore.Qt.ItemDataRole.EditRole])
+                self.dataChanged.emit(index, index, [QtCore.Qt.ItemDataRole.EditRole])
 
-            return True
+                return True
 
         return False
 
-    def headerData(self, section: int, orientation: QtCore.Qt.Orientation, role: QtCore.Qt.ItemDataRole):
+    def headerData(
+        self, section: int, orientation: QtCore.Qt.Orientation, role: QtCore.Qt.ItemDataRole
+    ):
         """Override from QAbstractItemModel
 
         For the JsonModel, it returns only data for columns (orientation = Horizontal)
@@ -202,7 +225,7 @@ class JsonModel(QtCore.QAbstractItemModel):
         if not index.isValid():
             return QtCore.QModelIndex()
 
-        childItem: TreeItem = index.internalPointer()
+        childItem = index.internalPointer()
         parentItem = childItem.parent()
 
         if parentItem == self._rootItem:
@@ -210,7 +233,7 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         return self.createIndex(parentItem.row(), 0, parentItem)
 
-    def rowCount(self, parent=QtCore.QModelIndex()) -> int:
+    def rowCount(self, parent=QtCore.QModelIndex()):
         """Override from QAbstractItemModel
 
         Return row count from parent index
@@ -225,22 +248,24 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         return parentItem.childCount()
 
-    def columnCount(self, parent=QtCore.QModelIndex()) -> int:
+    def columnCount(self, parent=QtCore.QModelIndex()):
         """Override from QAbstractItemModel
 
         Return column number. For the model, it always return 2 columns
         """
-        return 1
+        return 2
 
     def flags(self, index: QtCore.QModelIndex) -> QtCore.Qt.ItemFlag:
         """Override from QAbstractItemModel
 
         Return flags of index
         """
-        if not index.isValid():
-            return QtCore.Qt.ItemFlag.NoItemFlags
+        flags = super(JsonModel, self).flags(index)
 
-        return QtCore.Qt.ItemFlag.ItemIsEditable | QtCore.QAbstractItemModel.flags(self, index)
+        if index.column() == 1:
+            return QtCore.Qt.ItemFlag.ItemIsEditable | flags
+        else:
+            return flags
 
     def to_json(self, item=None):
 
@@ -253,7 +278,7 @@ class JsonModel(QtCore.QAbstractItemModel):
             document = {}
             for i in range(nchild):
                 ch = item.child(i)
-                document[ch.value] = self.to_json(ch)
+                document[ch.key] = self.to_json(ch)
             return document
 
         elif item.value_type == list:
@@ -265,4 +290,3 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         else:
             return item.value
-        
