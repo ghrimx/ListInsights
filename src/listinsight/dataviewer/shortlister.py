@@ -179,9 +179,10 @@ class ShortListModel(QtCore.QAbstractItemModel):
             logger.error(f"`document` must be of type dict not {type(document)}")
             return
 
-        self.beginResetModel()
-
         items = sorted(document.items()) if sort else document.items()
+        
+        self.beginResetModel()
+        self.clear()
 
         for key, value in items:
             shortlist_item = ShortListItem(value["body"], key, value["tags"], value["finding"])

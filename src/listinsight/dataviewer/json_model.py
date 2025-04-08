@@ -98,7 +98,7 @@ class JsonModel(QtCore.QAbstractItemModel):
         super().__init__(parent)
 
         self._rootItem = TreeItem()
-        self._headers = ("value")
+        self._headers = ["Name"]
 
     def clear(self):
         """ Clear data from the model """
@@ -160,9 +160,7 @@ class JsonModel(QtCore.QAbstractItemModel):
 
         return False
 
-    def headerData(
-        self, section: int, orientation: QtCore.Qt.Orientation, role: QtCore.Qt.ItemDataRole
-    ):
+    def headerData(self, section: int, orientation: QtCore.Qt.Orientation, role: QtCore.Qt.ItemDataRole):
         """Override from QAbstractItemModel
 
         For the JsonModel, it returns only data for columns (orientation = Horizontal)
@@ -171,8 +169,8 @@ class JsonModel(QtCore.QAbstractItemModel):
         if role != QtCore.Qt.ItemDataRole.DisplayRole:
             return None
 
-        # if orientation == QtCore.Qt.Orientation.Horizontal:
-        #     return self._headers[section]
+        if orientation == QtCore.Qt.Orientation.Horizontal:
+            return self._headers[section]
 
     def index(self, row: int, column: int, parent=QtCore.QModelIndex()) -> QtCore.QModelIndex:
         """Override from QAbstractItemModel

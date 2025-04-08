@@ -272,9 +272,11 @@ class DataView(QtWidgets.QTableView):
 
         model: PandasModel = self.model()
         pk_value = index.sibling(index.row(), model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        tags = index.sibling(index.row(), model.dataframe().columns.get_loc("Tags")).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        print(pk_value)
-        print(tags)
+        _tags = index.sibling(index.row(), model.dataframe().columns.get_loc("Tags")).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        
+        if _tags == 'None':
+            tags = ""
+
         self.sigAddToShortlist.emit(pk_value, tags)
 
     @Slot()
@@ -286,10 +288,12 @@ class DataView(QtWidgets.QTableView):
 class DataViewer(QtWidgets.QWidget):
     sigDatasetImported = Signal(Metadata)
     sigPrimaryKeyChanged = Signal(Metadata)
+    sigLoadProject = Signal()
+    sigNewProject = Signal()
 
-    def __init__(self, project: dict, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.project = project
+        self.project = {}
 
         vbox = QtWidgets.QVBoxLayout(self)
         self.setLayout(vbox)
@@ -323,12 +327,16 @@ class DataViewer(QtWidgets.QWidget):
         self.connectSignals()
 
     def createActions(self):
-        self.action_load_project_data = QtGui.QAction(QtGui.QIcon(":archive-stack-line"),"Load project dataset",
+        self.action_new_project = QtGui.QAction(QtGui.QIcon(""),"New project",
                                                       self,
-                                                      triggered=self.loadProjectData)
+                                                      triggered=self.sigNewProject)
+        self.action_load_project = QtGui.QAction(QtGui.QIcon(":archive-stack-line"),"Load project",
+                                                      self,
+                                                      triggered=self.sigLoadProject)
         self.action_import_data = QtGui.QAction(QtGui.QIcon(":import-line"),"Import new dataset",
                                                 self,
                                                 triggered=lambda: self.selectFiles(filter="*.csv *.xlsx *.parquet"))
+        self.action_import_data.setDisabled(True)
         
         # Get info
         self.action_getInfo = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.getInfo)
@@ -399,7 +407,8 @@ class DataViewer(QtWidgets.QWidget):
         self.window_menu.aboutToShow.connect(self.update_window_menu)
 
         # Add to Toolbar
-        self.toolbar.addAction(self.action_load_project_data)
+        self.toolbar.addAction(self.action_new_project)
+        self.toolbar.addAction(self.action_load_project)
         self.toolbar.addAction(self.action_import_data)
         self.toolbar.addSeparator()
         self.toolbar.addWidget(viewmenu_toolbutton)
@@ -451,7 +460,10 @@ class DataViewer(QtWidgets.QWidget):
         return dataset_metadata
 
     def selectFiles(self, dir=None, filter=None):
-        files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files", directory=dir, filter=filter)
+        rootpath = Path(self.project["project_rootpath"])
+        files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files",
+                                                       directory=rootpath.as_posix(),
+                                                       filter=filter)
 
         if len(files[0]) > 0:
             self._sources = files[0]
@@ -475,13 +487,14 @@ class DataViewer(QtWidgets.QWidget):
                         # df = df.reindex(columns=headers)
                         dataset.dataframe.insert(len(dataset.headers()), 'Tags', None)
 
-                    rootpath = Path(self.project["project_rootpath"])
                     parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
+                    
+                    parquet_folder = QtCore.QDir(rootpath.joinpath("parquets").as_posix())
+                    parquet_folder.mkpath(".")
+                    
                     if dataset is not None and filepath.parent != parquetfile.parent:
-                        saved_to_parquet  = self.save2Parquet(dataset.dataframe, parquetfile)
-
-                    if not saved_to_parquet:
-                        return
+                        if not self.save2Parquet(dataset.dataframe, parquetfile):
+                            return
 
                     dataset.parquet = parquetfile
 
@@ -658,30 +671,14 @@ class DataViewer(QtWidgets.QWidget):
         table_model: PandasModel = table.model()
 
         tags: str = index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        primary_key: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
-
+       
         if tags == 'None':
             self.tag_dialog.tag_list.model().setStringList([])
         else:
             self.tag_dialog.tag_list.model().setStringList(tags.split(","))
 
         self.tag_dialog.exec()
-            
-            # tag_list = self.tag_dialog.tag_list.model().stringList()
 
-            # if len(tag_list) > 0:
-            #     table.model().setData(index.sibling(index.row(), table.model().columnCount(QtCore.QModelIndex())-1),
-            #                           tag_list,
-            #                           QtCore.Qt.ItemDataRole.EditRole)   
-
-            #     self.tag_pane.model().addTags(primary_key, tag_list)
-
-            #     for tagname in tag_list:
-            #         if tagname in self.tag_pane.model().tagnames():
-            #             self.tag_pane.model().addToItem(tagname, primary_key)
-            #         else:
-            #             self.tag_pane.model().addTag(tagname, primary_key)
-    
     @Slot(str)
     def add2Tag(self, tagname: str):
         table: DataView = self.mdi.activeSubWindow().widget()
@@ -690,8 +687,7 @@ class DataViewer(QtWidgets.QWidget):
 
         primary_key: str = index.sibling(index.row(), table_model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
         self.tag_pane.model().add2Tag([primary_key], tagname)
-
-                
+         
     @Slot()
     def update_window_menu(self):
         self.window_menu.clear()
