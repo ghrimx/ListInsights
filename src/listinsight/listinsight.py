@@ -80,6 +80,10 @@ class ListInsight(QtWidgets.QWidget):
                                                 "New project",
                                                 self,
                                                 triggered=self.createProject)
+        self.action_select_project = QtGui.QAction(QtGui.QIcon(":archive-2"),
+                                                   "Select project",
+                                                   self,
+                                                   triggered=self.selectProject)
         self.action_load_project = QtGui.QAction(QtGui.QIcon(":archive-stack-line"),
                                                  "Load project",
                                                  self,
@@ -91,6 +95,7 @@ class ListInsight(QtWidgets.QWidget):
         self.action_projectInfo = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.projectInfo)
 
         self.toolbar.addAction(self.action_new_project)
+        self.toolbar.addAction(self.action_select_project)
         self.toolbar.addAction(self.action_load_project)
         self.toolbar.addAction(self.action_import_data)
         self.toolbar.addAction(self.action_projectInfo)
@@ -110,12 +115,13 @@ class ListInsight(QtWidgets.QWidget):
                                                      directory=self._rootpath.as_posix(),
                                                      filter="project.json")
         if not file[0]:
-            return False
+            return
 
         self._project_file = Path(file[0])
         self._rootpath = self._project_file.parent
+        self.dataviewer.mdi.closeAllSubWindows()
 
-        return True
+        QtCore.QTimer.singleShot(200, self.loadProject)
 
     def createProject(self) -> bool:
         project_name, ok = QtWidgets.QInputDialog().getText(self, 
@@ -180,13 +186,14 @@ class ListInsight(QtWidgets.QWidget):
             return False
         if not "project_files" in self._project:
             return False
+        if Path(self._project["project_rootpath"]) != self._rootpath:
+            return False
         
         return True
 
     def loadProject(self):
         if not self._project_file.exists():
-            if not self.selectProject():
-                return
+            return
 
         self._project, err = readJson(self._project_file.as_posix())
 
@@ -224,7 +231,8 @@ class ListInsight(QtWidgets.QWidget):
     @Slot(Metadata)
     def onMetadataChanged(self, metadata: Metadata):
         datasets_info: dict = self._project["datasets"]
-        datasets_info.update({metadata.dataset_id:{"parquet": metadata.parquet, "primary_key": metadata.primary_key_name}})
+        datasets_info.update({metadata.dataset_id:metadata.to_dict()})
+        # datasets_info.update({metadata.dataset_id:{"parquet": metadata.parquet, "primary_key": metadata.primary_key_name}})
         self.saveProject()
        
     @Slot(dict)

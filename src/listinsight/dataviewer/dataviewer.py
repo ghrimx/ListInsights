@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 from functools import partial
 from qtpy import QtWidgets, QtCore, QtGui, Slot, Signal
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 from utilities import config as mconf
 
@@ -22,6 +22,8 @@ class Metadata:
     dataset_id: str = ""
     parquet: str = ""
 
+    def to_dict(self):
+        return asdict(self)
 
 class DataSet:
     def __init__(self, df: pd.DataFrame, name: str):
