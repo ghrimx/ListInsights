@@ -6,8 +6,6 @@ from functools import partial
 from qtpy import QtWidgets, QtCore, QtGui, Slot, Signal
 from dataclasses import dataclass, asdict
 
-from utilities import config as mconf
-
 from .shortlister import ShortLister
 from .tagger import Tagger, TagDialog
 
@@ -290,8 +288,6 @@ class DataView(QtWidgets.QTableView):
 class DataViewer(QtWidgets.QWidget):
     sigDatasetImported = Signal(Metadata)
     sigPrimaryKeyChanged = Signal(Metadata)
-    sigLoadProject = Signal()
-    sigNewProject = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -308,7 +304,7 @@ class DataViewer(QtWidgets.QWidget):
         # Actions & Toolbar
         self.createActions()
         self.createToolbar()
-
+        
         self.tab = QtWidgets.QTabWidget()
 
         # LeftPane
@@ -328,18 +324,7 @@ class DataViewer(QtWidgets.QWidget):
         self.initDialogs()
         self.connectSignals()
 
-    def createActions(self):
-        self.action_new_project = QtGui.QAction(QtGui.QIcon(""),"New project",
-                                                      self,
-                                                      triggered=self.sigNewProject)
-        self.action_load_project = QtGui.QAction(QtGui.QIcon(":archive-stack-line"),"Load project",
-                                                      self,
-                                                      triggered=self.sigLoadProject)
-        self.action_import_data = QtGui.QAction(QtGui.QIcon(":import-line"),"Import new dataset",
-                                                self,
-                                                triggered=lambda: self.selectFiles(filter="*.csv *.xlsx *.parquet"))
-        self.action_import_data.setDisabled(True)
-        
+    def createActions(self):      
         # Get info
         self.action_getInfo = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.getInfo)
 
@@ -409,10 +394,6 @@ class DataViewer(QtWidgets.QWidget):
         self.window_menu.aboutToShow.connect(self.update_window_menu)
 
         # Add to Toolbar
-        self.toolbar.addAction(self.action_new_project)
-        self.toolbar.addAction(self.action_load_project)
-        self.toolbar.addAction(self.action_import_data)
-        self.toolbar.addSeparator()
         self.toolbar.addWidget(viewmenu_toolbutton)
         self.toolbar.addWidget(self.windowmenu_toolbutton)
         self.toolbar.addSeparator()
@@ -420,6 +401,14 @@ class DataViewer(QtWidgets.QWidget):
         self.toolbar.addAction(self.action_resetFilters)
         self.toolbar.addAction(self.action_syncSelectionFilter)
         
+        spacer = QtWidgets.QWidget()
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        self.toolbar.addWidget(spacer)
+
+        self.progress = QtWidgets.QProgressBar(self.toolbar)
+        self.progress.setMaximumWidth(100)
+        self.toolbar.addWidget(self.progress)
+                
     def initDialogs(self):
         self.tag_dialog: TagDialog = None
 
@@ -456,64 +445,79 @@ class DataViewer(QtWidgets.QWidget):
                 return True
         return False
     
-    def metadataFromProject(self, dataset_id: str) -> dict:
-        datasets: dict = self.project["datasets"]
-        dataset_metadata: dict = datasets.get(dataset_id)
-        return dataset_metadata
+    def metadataFromJson(self, dataset_id: str) -> dict|None:
+        metadata_list: list = self.project.get("datasets")
+        if metadata_list is None:
+            return {}
+        
+        metadata_dict: dict
+        for metadata_dict in metadata_list:
+            if metadata_dict.get("dataset_id") == dataset_id:
+                return metadata_dict
 
-    def selectFiles(self, dir=None, filter=None):
-        rootpath = Path(self.project["project_rootpath"])
-        files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files",
-                                                       directory=rootpath.as_posix(),
-                                                       filter=filter)
+    #TODO : merge with loadProjectData
+    def loadFiles(self, files: list, update_json: bool = True):
+        if not "project_rootpath" in self.project:
+            return
 
-        if len(files[0]) > 0:
-            self._sources = files[0]
+        rootpath = Path(self.project.get("project_rootpath"))
 
-            for file in self._sources:
-                filepath = Path(file)
+        if len(files) == 0:
+            return
+        for file in files:
+            filepath = Path(file)
+            
+            if self.isDatasetLoaded(filepath):
+                continue
+
+            datasets = self.readFile(filepath)
+            if len(datasets) == 0:
+                return
+
+            dataset: DataSet
+            for dataset in datasets:
+                headers: list = dataset.headers()
+
+                if not 'Tags' in headers:
+                    headers.append('Tags')
+                    # df = df.reindex(columns=headers)
+                    dataset.dataframe.insert(len(dataset.headers()), 'Tags', None)
+
+                parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
                 
-                if self.isDatasetLoaded(filepath):
-                    continue
+                parquet_folder = QtCore.QDir(rootpath.joinpath("parquets").as_posix())
+                parquet_folder.mkpath(".")
+                
+                if dataset is not None and filepath.parent != parquetfile.parent:
+                    if not self.save2Parquet(dataset.dataframe, parquetfile):
+                        return
 
-                datasets = self.readFile(filepath)
-                if len(datasets) == 0:
-                    return
+                dataset.parquet = parquetfile
 
-                dataset: DataSet
-                for dataset in datasets:
-                    headers: list = dataset.headers()
+                metadata: dict = self.metadataFromJson(dataset_id=dataset.uid)
+                if metadata is not None:
+                    dataset.pk_name = metadata.get("primary_key_name")
 
-                    if not 'Tags' in headers:
-                        headers.append('Tags')
-                        # df = df.reindex(columns=headers)
-                        dataset.dataframe.insert(len(dataset.headers()), 'Tags', None)
+                self.createDataView(dataset)
 
-                    parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
-                    
-                    parquet_folder = QtCore.QDir(rootpath.joinpath("parquets").as_posix())
-                    parquet_folder.mkpath(".")
-                    
-                    if dataset is not None and filepath.parent != parquetfile.parent:
-                        if not self.save2Parquet(dataset.dataframe, parquetfile):
-                            return
-
-                    dataset.parquet = parquetfile
-
-                    metadata: dict = self.metadataFromProject(dataset_id=dataset.uid)
-                    if metadata is not None:
-                        dataset.pk_name = metadata.get("primary_key")
-
-                    self.createDataView(dataset)
+                if update_json:
                     self.sigDatasetImported.emit(dataset.metadata())
-                
-            self.updateActionState()
+            
+        self.updateActionState()
 
     @Slot()
     def loadProjectData(self):
-        datasets: dict = self.project["datasets"]
-        for dataset in datasets.values():
-            parquet = Path(dataset["parquet"])
+        metadata_list: list = self.project.get("datasets")
+        if metadata_list is None:
+            return
+
+        self.progress.setMaximum(len(metadata_list))
+        steps = 0
+
+        metadata: dict
+        for metadata in metadata_list:
+            self.progress.setValue(steps)
+            parquet = Path(metadata.get("parquet"))
 
             # Skip if file is missing
             if not parquet.exists():
@@ -528,12 +532,14 @@ class DataViewer(QtWidgets.QWidget):
             dataset: DataSet = datasets[0]
             dataset.parquet = parquet
 
-            metadata: dict = self.metadataFromProject(dataset_id=dataset.uid)
+            metadata: dict = self.metadataFromJson(dataset_id=dataset.uid)
             if metadata is not None:
-                dataset.pk_name = metadata.get("primary_key")
+                dataset.pk_name = metadata.get("primary_key_name")
 
             self.createDataView(dataset)
-        
+            steps += 1 
+
+        self.progress.setValue(steps)
         self.updateActionState()
     
     @classmethod

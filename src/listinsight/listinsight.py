@@ -9,6 +9,7 @@ from dataviewer.json_model import JsonModel
 
 from utilities.utils import writeJson, readJson
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,9 +27,9 @@ class ProjectInfo(QtWidgets.QDialog):
 
     def load(self, data: dict):
         self.model.load(data)
+        self.view.expandAll()
         self.view.resizeColumnToContents(0)
         self.view.resizeColumnToContents(1)
-        self.view.expandAll()
         self.resize(self.view.width(), self.view.height())
 
 class ListInsight(QtWidgets.QWidget):
@@ -62,10 +63,8 @@ class ListInsight(QtWidgets.QWidget):
 
         self.dataviewer.shortlister.sigSaveToJson.connect(self.saveShortList)
         self.dataviewer.tag_pane.sigSaveToJson.connect(self.saveTags)
-        self.dataviewer.sigDatasetImported.connect(self.onMetadataChanged)
         self.dataviewer.sigPrimaryKeyChanged.connect(self.onMetadataChanged)
-        self.dataviewer.sigLoadProject.connect(self.loadProject)
-        self.dataviewer.sigNewProject.connect(self.createProject)
+        self.dataviewer.sigDatasetImported.connect(self.onMetadataChanged)
 
         self.createMenubar()
         self.initDialogs()
@@ -76,11 +75,11 @@ class ListInsight(QtWidgets.QWidget):
         self.toolbar.setOrientation(QtCore.Qt.Orientation.Vertical)
         self.vbox.insertWidget(0, self.toolbar)
         
-        self.action_new_project = QtGui.QAction(QtGui.QIcon(":archive-2"),
+        self.action_new_project = QtGui.QAction(QtGui.QIcon(":archive-2-line"),
                                                 "New project",
                                                 self,
                                                 triggered=self.createProject)
-        self.action_select_project = QtGui.QAction(QtGui.QIcon(":archive-2"),
+        self.action_select_project = QtGui.QAction(QtGui.QIcon(":inbox-archive-line"),
                                                    "Select project",
                                                    self,
                                                    triggered=self.selectProject)
@@ -90,7 +89,7 @@ class ListInsight(QtWidgets.QWidget):
                                                  triggered=self.loadProject)
         self.action_import_data = QtGui.QAction(QtGui.QIcon(":import-line"),"Import new dataset",
                                                 self,
-                                                triggered=lambda: self.dataviewer.selectFiles(filter="*.csv *.xlsx *.parquet"))
+                                                triggered=self.loadFiles)
         self.action_import_data.setDisabled(True)
         self.action_projectInfo = QtGui.QAction(QtGui.QIcon(":information-2-line"), "Info", self, triggered=self.projectInfo)
 
@@ -99,6 +98,10 @@ class ListInsight(QtWidgets.QWidget):
         self.toolbar.addAction(self.action_load_project)
         self.toolbar.addAction(self.action_import_data)
         self.toolbar.addAction(self.action_projectInfo)
+
+        spacer = QtWidgets.QWidget()
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        self.toolbar.addWidget(spacer)
     
     def initDialogs(self):
         self.info_dialog: ProjectInfo = None
@@ -109,6 +112,12 @@ class ListInsight(QtWidgets.QWidget):
 
         self.info_dialog.load(self._project)
         self.info_dialog.exec()
+
+    def selectFiles(self, dir: str = "", filter: str = "*.*") -> list:
+        files = QtWidgets.QFileDialog.getOpenFileNames(caption="Select files",
+                                                       directory=dir,
+                                                       filter=filter)
+        return files[0]
  
     def selectProject(self):
         file = QtWidgets.QFileDialog.getOpenFileName(caption="Select Project file",
@@ -163,7 +172,7 @@ class ListInsight(QtWidgets.QWidget):
         project = {}
         project["project_rootpath"] = rootpath.as_posix()
         project["project_name"] = project_name
-        project["datasets"] = {}
+        project["datasets"] = []
         project["project_files"] = {"shortlist": shortlist_file.as_posix(),
                                         "tagged": tagged_file.as_posix()}
         
@@ -210,7 +219,7 @@ class ListInsight(QtWidgets.QWidget):
         self.dataviewer.loadProjectData()
         self.loadShortlist()
         self.loadTagger()
-        self.dataviewer.action_import_data.setDisabled(False)
+        self.updateActionState()
 
     def loadShortlist(self):
         if not self._shortlist_file.exists():
@@ -228,12 +237,33 @@ class ListInsight(QtWidgets.QWidget):
         data, err = readJson(self._tagged_file.as_posix())
         self.dataviewer.tag_pane.model().load(data.copy())
 
+    def loadFiles(self):
+        files = self.selectFiles(self._rootpath.as_posix(), filter="*.csv *.xlsx *.parquet")
+        self.dataviewer.loadFiles(files)
+
     @Slot(Metadata)
     def onMetadataChanged(self, metadata: Metadata):
-        datasets_info: dict = self._project["datasets"]
-        datasets_info.update({metadata.dataset_id:metadata.to_dict()})
+        metadata_list: list = self._project.get("datasets")
+        if metadata_list is None:
+            return
+
+        metadata_dict: dict
+        for i in range(len(metadata_list)):
+            metadata_dict = metadata_list[i]
+            if metadata_dict.get("dataset_id") == metadata.dataset_id:
+                metadata_list[i] = metadata.to_dict()
+                break
+        else:
+            metadata_list.append(metadata.to_dict())
         # datasets_info.update({metadata.dataset_id:{"parquet": metadata.parquet, "primary_key": metadata.primary_key_name}})
         self.saveProject()
+
+    @Slot()
+    def updateActionState(self):
+        if "project_rootpath" in self._project:
+            self.action_import_data.setEnabled(True)
+        else:
+            self.action_import_data.setEnabled(False)
        
     @Slot(dict)
     def saveShortList(self, data: dict):
