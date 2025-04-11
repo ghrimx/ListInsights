@@ -288,6 +288,9 @@ class DataView(QtWidgets.QTableView):
 class DataViewer(QtWidgets.QWidget):
     sigDatasetImported = Signal(Metadata)
     sigPrimaryKeyChanged = Signal(Metadata)
+    sigMessage = Signal(str)
+    sigLoading = Signal(int)
+    sigProgressbarMax = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -405,9 +408,9 @@ class DataViewer(QtWidgets.QWidget):
         spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.toolbar.addWidget(spacer)
 
-        self.progress = QtWidgets.QProgressBar(self.toolbar)
-        self.progress.setMaximumWidth(100)
-        self.toolbar.addWidget(self.progress)
+        # self.progress = QtWidgets.QProgressBar(self.toolbar)
+        # self.progress.setMaximumWidth(100)
+        # self.toolbar.addWidget(self.progress)
                 
     def initDialogs(self):
         self.tag_dialog: TagDialog = None
@@ -511,12 +514,14 @@ class DataViewer(QtWidgets.QWidget):
         if metadata_list is None:
             return
 
-        self.progress.setMaximum(len(metadata_list))
-        steps = 0
+        self.sigMessage.emit(f"Loading datasets...")
+
+        cnt = 0
+        self.sigProgressbarMax.emit(len(metadata_list))
 
         metadata: dict
         for metadata in metadata_list:
-            self.progress.setValue(steps)
+            self.sigLoading.emit(cnt)
             parquet = Path(metadata.get("parquet"))
 
             # Skip if file is missing
@@ -537,10 +542,10 @@ class DataViewer(QtWidgets.QWidget):
                 dataset.pk_name = metadata.get("primary_key_name")
 
             self.createDataView(dataset)
-            steps += 1 
+            cnt += 1
 
-        self.progress.setValue(steps)
         self.updateActionState()
+        self.sigLoading.emit(cnt)
     
     @classmethod
     def readFile(cls, filepath: Path, **kwargs) -> list[DataSet]:

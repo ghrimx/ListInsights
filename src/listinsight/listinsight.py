@@ -44,14 +44,15 @@ class ListInsight(QtWidgets.QWidget):
         self.initUI()
 
     def initUI(self):
-        self.vbox = QtWidgets.QHBoxLayout()
+        # self.vbox = QtWidgets.QHBoxLayout()
+        self.vbox = QtWidgets.QGridLayout()
         self.vbox.setSpacing(0)
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.vbox )
 
         self.tab_widget = QtWidgets.QTabWidget()
         self.tab_widget.setTabPosition(QtWidgets.QTabWidget.TabPosition.South)
-        self.vbox.addWidget(self.tab_widget)
+        self.vbox.addWidget(self.tab_widget, 0, 1)
 
          # Dataviewer
         self.dataviewer = DataViewer()
@@ -65,15 +66,19 @@ class ListInsight(QtWidgets.QWidget):
         self.dataviewer.tag_pane.sigSaveToJson.connect(self.saveTags)
         self.dataviewer.sigPrimaryKeyChanged.connect(self.onMetadataChanged)
         self.dataviewer.sigDatasetImported.connect(self.onMetadataChanged)
+        self.dataviewer.sigMessage.connect(self.updateStatusbarMessage)
+        self.dataviewer.sigLoading.connect(self.updateStatusLoading)
+        self.dataviewer.sigProgressbarMax.connect(self.setProgessbarMax)
 
         self.createMenubar()
+        self.createStatusbar()
         self.initDialogs()
 
     def createMenubar(self):
         self.toolbar = QtWidgets.QToolBar()
         self.toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.toolbar.setOrientation(QtCore.Qt.Orientation.Vertical)
-        self.vbox.insertWidget(0, self.toolbar)
+        self.vbox.addWidget(self.toolbar,0,0)
         
         self.action_new_project = QtGui.QAction(QtGui.QIcon(":archive-2-line"),
                                                 "New project",
@@ -102,6 +107,28 @@ class ListInsight(QtWidgets.QWidget):
         spacer = QtWidgets.QWidget()
         spacer.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         self.toolbar.addWidget(spacer)
+
+    def createStatusbar(self):
+        self.statusbar = QtWidgets.QStatusBar(self)
+        self.vbox.addWidget(self.statusbar, 1, 1, QtCore.Qt.AlignmentFlag.AlignLeft)
+        self.loading_status = QtWidgets.QLabel()
+        self.loading_status.setMinimumWidth(120)
+        self.loading_bar = QtWidgets.QProgressBar()
+        self.loading_bar.setMinimum(0)
+        self.statusbar.addPermanentWidget(self.loading_status)
+        self.statusbar.addPermanentWidget(self.loading_bar)
+
+    @Slot(str)
+    def updateStatusbarMessage(self, msg: str):
+        self.loading_status.setText(msg)
+    
+    @Slot(int)
+    def setProgessbarMax(self, i: int):
+        self.loading_bar.setMaximum(i)
+
+    @Slot(int)
+    def updateStatusLoading(self, i: int):
+        self.loading_bar.setValue(i)
     
     def initDialogs(self):
         self.info_dialog: ProjectInfo = None
@@ -193,6 +220,8 @@ class ListInsight(QtWidgets.QWidget):
             return False
         if not "datasets" in self._project:
             return False
+        if not isinstance(self._project["datasets"], list):
+            return False
         if not "project_files" in self._project:
             return False
         if Path(self._project["project_rootpath"]) != self._rootpath:
@@ -255,7 +284,6 @@ class ListInsight(QtWidgets.QWidget):
                 break
         else:
             metadata_list.append(metadata.to_dict())
-        # datasets_info.update({metadata.dataset_id:{"parquet": metadata.parquet, "primary_key": metadata.primary_key_name}})
         self.saveProject()
 
     @Slot()
