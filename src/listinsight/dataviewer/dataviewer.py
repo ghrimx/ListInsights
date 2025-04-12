@@ -289,8 +289,9 @@ class DataViewer(QtWidgets.QWidget):
     sigDatasetImported = Signal(Metadata)
     sigPrimaryKeyChanged = Signal(Metadata)
     sigMessage = Signal(str)
-    sigLoading = Signal(int)
-    sigProgressbarMax = Signal(int)
+    sigLoadingEnded = Signal(str)
+    sigLoadingStarted = Signal(int, str)
+    sigLoadingProgress = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -514,14 +515,12 @@ class DataViewer(QtWidgets.QWidget):
         if metadata_list is None:
             return
 
-        self.sigMessage.emit(f"Loading datasets...")
-
         cnt = 0
-        self.sigProgressbarMax.emit(len(metadata_list))
+        self.sigLoadingStarted.emit(len(metadata_list), "Loading datasets...")
 
         metadata: dict
         for metadata in metadata_list:
-            self.sigLoading.emit(cnt)
+            self.sigLoadingProgress.emit(cnt)
             parquet = Path(metadata.get("parquet"))
 
             # Skip if file is missing
@@ -544,8 +543,9 @@ class DataViewer(QtWidgets.QWidget):
             self.createDataView(dataset)
             cnt += 1
 
+        self.sigLoadingProgress.emit(len(metadata_list))
         self.updateActionState()
-        self.sigLoading.emit(cnt)
+        self.sigLoadingEnded.emit(f"Dataset loaded ({cnt}/{len(metadata_list)})")
     
     @classmethod
     def readFile(cls, filepath: Path, **kwargs) -> list[DataSet]:

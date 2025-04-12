@@ -67,8 +67,9 @@ class ListInsight(QtWidgets.QWidget):
         self.dataviewer.sigPrimaryKeyChanged.connect(self.onMetadataChanged)
         self.dataviewer.sigDatasetImported.connect(self.onMetadataChanged)
         self.dataviewer.sigMessage.connect(self.updateStatusbarMessage)
-        self.dataviewer.sigLoading.connect(self.updateStatusLoading)
-        self.dataviewer.sigProgressbarMax.connect(self.setProgessbarMax)
+        self.dataviewer.sigLoadingProgress.connect(self.updateProgessbar)
+        self.dataviewer.sigLoadingStarted.connect(self.setProgessbar)
+        self.dataviewer.sigLoadingEnded.connect(self.updateStatusbarMessage)
 
         self.createMenubar()
         self.createStatusbar()
@@ -111,24 +112,28 @@ class ListInsight(QtWidgets.QWidget):
     def createStatusbar(self):
         self.statusbar = QtWidgets.QStatusBar(self)
         self.vbox.addWidget(self.statusbar, 1, 1, QtCore.Qt.AlignmentFlag.AlignLeft)
-        self.loading_status = QtWidgets.QLabel()
-        self.loading_status.setMinimumWidth(120)
-        self.loading_bar = QtWidgets.QProgressBar()
-        self.loading_bar.setMinimum(0)
-        self.statusbar.addPermanentWidget(self.loading_status)
-        self.statusbar.addPermanentWidget(self.loading_bar)
+        self.status_label = QtWidgets.QLabel()
+        self.status_label.setMinimumWidth(150)
+        self.statusbar.addPermanentWidget(self.status_label)
 
     @Slot(str)
     def updateStatusbarMessage(self, msg: str):
-        self.loading_status.setText(msg)
+        self.status_label.setText(msg)
     
-    @Slot(int)
-    def setProgessbarMax(self, i: int):
-        self.loading_bar.setMaximum(i)
+    @Slot(int,str)
+    def setProgessbar(self, i: int, m: str):
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.setMinimum(0)
+        self.progress.setMaximum(i)
+        self.progress.setFixedHeight(self.status_label.height())
+        self.statusbar.addWidget(self.progress)
+        self.status_label.setText(m)
 
     @Slot(int)
-    def updateStatusLoading(self, i: int):
-        self.loading_bar.setValue(i)
+    def updateProgessbar(self, i: int):
+        self.progress.setValue(i)
+        if self.progress.maximum() == i:
+            self.statusbar.removeWidget(self.progress)
     
     def initDialogs(self):
         self.info_dialog: ProjectInfo = None
