@@ -342,7 +342,7 @@ class ShortListEditor(QtWidgets.QDialog):
     
 class ShortLister(QtWidgets.QWidget):
     sigSaveToJson = Signal(dict)
-    sigTagsEdited = Signal(str)
+    sigTagsEdited = Signal(str,str)
 
     def __init__(self, parent = None):
         super().__init__(parent)
