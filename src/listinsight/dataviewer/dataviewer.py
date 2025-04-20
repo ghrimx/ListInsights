@@ -11,6 +11,12 @@ from .tagger import Tagger, TagDialog
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class Filter:
+    expr: str
+    enabled: bool
+    failed: bool
+
 
 @dataclass
 class Metadata:
@@ -98,6 +104,7 @@ class PandasModel(QtCore.QAbstractTableModel):
     def __init__(self, dset: DataSet, parent=None):
         super(PandasModel, self).__init__(parent)
         self._dataset: DataSet = dset
+        self.filters: list[Filter] = []
 
     @property
     def dataset(self):
@@ -153,20 +160,36 @@ class PandasModel(QtCore.QAbstractTableModel):
 
         return None
 
-    def filter(self, s: str):
+    def apply_id_filter(self, sid: str):
         if self.dataset.pk_name == "":
             return
         
         if self.dataset.pk_type() == "int64":
             try:
-                s = int(s)
+                sid = int(sid)
             except:
                 return
         
-        df = pd.read_parquet(self.dataset.parquet, filters=[(self.dataset.pk_name, '=', s)])
+        df = pd.read_parquet(self.dataset.parquet, filters=[(self.dataset.pk_name, '=', sid)])
         self.beginResetModel()
         self.dataset.dataframe = df.copy()
         self.endResetModel()
+    
+    #TODO
+    def apply_user_filter(self):
+        filter: Filter
+        df = self.dataset.dataframe.copy()
+        for filter in self.filters:
+            try:
+                df = df.query(filter.expr)
+            except Exception as e:
+                logger.error(e)
+                return
+        
+        self.beginResetModel()
+        self.dataset.dataframe = df
+        self.endResetModel()
+        
 
     def refresh(self):
         df = pd.read_parquet(self.dataset.parquet)
@@ -659,14 +682,14 @@ class DataViewer(QtWidgets.QWidget):
             except:
                 return
             
-            cid = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
+            sid = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
             for subwindow in self.mdi.subWindowList():
                 if subwindow == self.mdi.activeSubWindow():
                     continue
                 
                 widget: DataView = subwindow.widget()
-                widget.model().filter(cid)
+                widget.model().apply_id_filter(sid)
                 widget.resizeColumnsToContents()
 
     @Slot()

@@ -20,4 +20,4 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.listinsight.setTaggedFile('tagged.json')
 
         self.setCentralWidget(self.listinsight)
-        print(ListInsight._ve)
+
