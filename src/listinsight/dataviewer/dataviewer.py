@@ -8,6 +8,7 @@ from dataclasses import dataclass, asdict
 
 from .shortlister import ShortLister
 from .tagger import Tagger, TagDialog
+from .filter import FilterPane
 
 logger = logging.getLogger(__name__)
 
@@ -337,9 +338,11 @@ class DataViewer(QtWidgets.QWidget):
         # LeftPane
         self.tag_pane = Tagger()
         self.shortlister = ShortLister()
+        self.filter_pane = FilterPane()
 
         self.tab.addTab(self.tag_pane, "Tags")
         self.tab.addTab(self.shortlister, "ShortLister")
+        self.tab.addTab(self.filter_pane, "Filter")
 
         self.splitter = QtWidgets.QSplitter()
         self.splitter.addWidget(self.tab)
