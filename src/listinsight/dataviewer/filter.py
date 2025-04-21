@@ -97,6 +97,6 @@ class FilterPane(QtWidgets.QWidget):
 
     @Slot()
     def addFilter(self):
-        
+        ...
 
         
