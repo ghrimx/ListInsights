@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from qtpy import QtCore, QtWidgets, QtGui, Slot
+from qtpy import QtCore, QtWidgets, QtGui, Slot, Signal
 
 
 @dataclass
@@ -56,25 +56,39 @@ class FilterModel(QtCore.QAbstractListModel):
 class FilterDialog(QtWidgets.QDialog):
     def __init__(self, parent = None):
         super().__init__(parent)
+        self.setWindowTitle("Create filter expression")
 
         formlayout = QtWidgets.QFormLayout()
         self.setLayout(formlayout)
 
-        field_1 = QtWidgets.QLineEdit()
-        formlayout.addRow("Field", field_1)
+        self.field = QtWidgets.QLineEdit()
+        formlayout.addRow("Field", self.field)
 
         operators = ["==", "!=", ">", "<", ">=", "<=", "in", "str.contains()"]
 
-        operator = QtWidgets.QComboBox()
+        self.operator = QtWidgets.QComboBox()
         for op in operators:
-            operator.addItem(op)
-        formlayout.addRow("operator", operator)
+            self.operator.addItem(op)
+        formlayout.addRow("Operator", self.operator)
 
-        field_2 = QtWidgets.QLineEdit()
-        formlayout.addRow("Field", field_2)
+        self.value = QtWidgets.QLineEdit()
+        formlayout.addRow("Value", self.value)
+
+        buttons = (QtWidgets.QDialogButtonBox.StandardButton.Save | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+
+        self.buttonBox = QtWidgets.QDialogButtonBox(buttons)
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+
+        formlayout.addWidget(self.buttonBox)
+
+    def get_filter(self):
+        return f"`{self.field.text()}` {self.operator.currentText()} {self.value.text()}"
 
 
 class FilterPane(QtWidgets.QWidget):
+    sigAddFilter = Signal(str)
+
     def __init__(self, parent = None):
         super().__init__(parent)
 
@@ -95,8 +109,13 @@ class FilterPane(QtWidgets.QWidget):
 
         add_filter_btn.clicked.connect(self.addFilter)
 
+        
+
     @Slot()
     def addFilter(self):
-        ...
+        filter_dlg = FilterDialog(self)
+        if filter_dlg.exec():
+            filter_exp = filter_dlg.get_filter()
+            print(filter_exp)
 
         
