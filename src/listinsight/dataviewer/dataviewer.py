@@ -8,15 +8,9 @@ from dataclasses import dataclass, asdict
 
 from .shortlister import ShortLister
 from .tagger import Tagger, TagDialog
-from .filter import FilterPane
+from .filter import FilterPane, Filter
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class Filter:
-    expr: str
-    enabled: bool
-    failed: bool
 
 
 @dataclass
@@ -33,7 +27,9 @@ class Metadata:
 class DataSet:
     def __init__(self, df: pd.DataFrame, name: str):
         self._dataframe = df
-        self._metadata = Metadata(dataset_name=name)
+        self._metadata = Metadata()
+        self.name = name
+        self.filters: list[Filter] = []
 
     @property
     def dataframe(self) -> pd.DataFrame:
@@ -94,19 +90,38 @@ class DataSet:
     def headers(self) -> list[str]:
         return self.dataframe.columns.values.tolist()
     
+    @property
     def metadata(self) -> Metadata:
         return self._metadata
+    
+    @metadata.setter
+    def metadata(self, meta):
+        self._metadata = meta
         
     def __str__(self):
-        return self.metadata()
+        return self.metadata
 
+    def metasFromJson(self, json: dict):
+        dict_metadata: dict = json.get("metadata")
+        metadata = Metadata(dict_metadata.get("primary_key_name"),
+                            dict_metadata.get("primary_key_index"),
+                            dict_metadata.get("dataset_name"),
+                            dict_metadata.get("dataset_id"),
+                            dict_metadata.get("parquet"))
+        self.metadata = metadata
+        
+        filter_list: list[dict] = json.get("filters")
+        dfilter: dict
+        for dfilter in filter_list:
+            filt = Filter(dfilter.get("attr"), dfilter.get("oper"), dfilter.get("value"))
+            self.filters.append(filt)
+        
 
 class PandasModel(QtCore.QAbstractTableModel):
     def __init__(self, dset: DataSet, parent=None):
         super(PandasModel, self).__init__(parent)
         self._dataset: DataSet = dset
-        self.filters: list[Filter] = []
-
+        
     @property
     def dataset(self):
         return self._dataset
@@ -178,19 +193,20 @@ class PandasModel(QtCore.QAbstractTableModel):
     
     #TODO
     def apply_user_filter(self):
-        filter: Filter
+        print("apply_user_filter")
         df = self.dataset.dataframe.copy()
-        for filter in self.filters:
-            try:
-                df = df.query(filter.expr)
-            except Exception as e:
-                logger.error(e)
-                return
+        for filter in self.dataset.filters:
+            if filter.enabled:
+                try:
+                    df = df.query(filter.expr())
+                except Exception as e:
+                    filter.failed = True
+                    logger.error(e)
+                    return
         
         self.beginResetModel()
         self.dataset.dataframe = df
         self.endResetModel()
-        
 
     def refresh(self):
         df = pd.read_parquet(self.dataset.parquet)
@@ -305,7 +321,7 @@ class DataView(QtWidgets.QTableView):
 
     @Slot()
     def onPrimaryKeyChanged(self):
-        metadata: Metadata = self.model().dataset.metadata()
+        metadata: Metadata = self.model().dataset.metadata
         self.sigPrimaryKeyChanged.emit(metadata)
 
 
@@ -443,7 +459,8 @@ class DataViewer(QtWidgets.QWidget):
         self.tag_dialog: TagDialog = None
 
     def connectSignals(self):
-        ...
+        self.mdi.subWindowActivated.connect(self.setCurrentFilterModel)
+        self.filter_pane.sigToggleFilter.connect(self.toggleFilter)
         # self.shortlister.sigTagsEdited.connect(self.tag_pane.)
 
     def createDataView(self, dataset: DataSet):
@@ -467,6 +484,33 @@ class DataViewer(QtWidgets.QWidget):
 
             subwindow.setWindowTitle(table.tablename)
             subwindow.show()
+
+    #TODO
+    def createFilterModel(self, dataset: DataSet):
+        self.filter_pane.createModel(dataset.uid, dataset.filters)
+    
+    @Slot(QtWidgets.QMdiSubWindow)
+    def setCurrentFilterModel(self, subwindow: QtWidgets.QMdiSubWindow):
+        if subwindow is None:
+            return
+        
+        table: DataView = subwindow.widget()
+        model: PandasModel = table.model()
+        self.filter_pane.setCurrentModel(model.dataset.uid)
+
+    @Slot(int)
+    def toggleFilter(self, index):
+        active_subwindow = self.mdi.activeSubWindow()
+
+        if active_subwindow is None:
+            return
+
+        table: DataView = active_subwindow.widget()
+        model: PandasModel = table.model()
+        model.dataset.filters[index].enabled = not model.dataset.filters[index].enabled
+        model.apply_user_filter()
+
+        # self.filters[index].enabled = not self.filters[index].enabled
         
     def isDatasetLoaded(self, filepath: Path) -> bool:
         for subwindow in self.mdi.subWindowList():
@@ -476,14 +520,16 @@ class DataViewer(QtWidgets.QWidget):
         return False
     
     def metadataFromJson(self, dataset_id: str) -> dict|None:
-        metadata_list: list = self.project.get("datasets")
-        if metadata_list is None:
+        dataset_list: list = self.project.get("datasets")
+        if dataset_list is None:
             return {}
         
-        metadata_dict: dict
-        for metadata_dict in metadata_list:
-            if metadata_dict.get("dataset_id") == dataset_id:
-                return metadata_dict
+        metadata: dict
+        dataset: dict
+        for dataset in dataset_list:
+            metadata = dataset.get("metadata")
+            if metadata.get("dataset_id") == dataset_id:
+                return metadata
 
     #TODO : merge with loadProjectData
     def loadFiles(self, files: list, update_json: bool = True):
@@ -514,7 +560,6 @@ class DataViewer(QtWidgets.QWidget):
                     dataset.dataframe.insert(len(dataset.headers()), 'Tags', None)
 
                 parquetfile = rootpath.joinpath("parquets", f"{dataset.name}.parquet")
-                
                 parquet_folder = QtCore.QDir(rootpath.joinpath("parquets").as_posix())
                 parquet_folder.mkpath(".")
                 
@@ -529,25 +574,26 @@ class DataViewer(QtWidgets.QWidget):
                     dataset.pk_name = metadata.get("primary_key_name")
 
                 self.createDataView(dataset)
+                self.createFilterModel(dataset.uid)
 
                 if update_json:
-                    self.sigDatasetImported.emit(dataset.metadata())
+                    self.sigDatasetImported.emit(dataset.metadata)
             
         self.updateActionState()
 
     @Slot()
     def loadProjectData(self):
-        metadata_list: list = self.project.get("datasets")
-        if metadata_list is None:
+        dataset_list: list = self.project.get("datasets")
+        if dataset_list is None:
             return
 
         cnt = 0
-        self.sigLoadingStarted.emit(len(metadata_list), "Loading datasets...")
-
-        metadata: dict
-        for metadata in metadata_list:
+        self.sigLoadingStarted.emit(len(dataset_list), "Loading datasets...")
+        
+        for dataset_dict in dataset_list:
+            parquet_str = dataset_dict.get("metadata", {}).get("parquet")
             self.sigLoadingProgress.emit(cnt)
-            parquet = Path(metadata.get("parquet"))
+            parquet = Path(parquet_str)
 
             # Skip if file is missing
             if not parquet.exists():
@@ -560,22 +606,19 @@ class DataViewer(QtWidgets.QWidget):
             
             datasets = self.readFile(parquet)
             dataset: DataSet = datasets[0]
-            dataset.parquet = parquet
-
-            metadata: dict = self.metadataFromJson(dataset_id=dataset.uid)
-            if metadata is not None:
-                dataset.pk_name = metadata.get("primary_key_name")
+            dataset.metasFromJson(dataset_dict)
 
             self.createDataView(dataset)
+            self.createFilterModel(dataset)
             cnt += 1
 
-        self.sigLoadingProgress.emit(len(metadata_list))
+        self.sigLoadingProgress.emit(len(dataset_list))
         self.updateActionState()
-        self.sigLoadingEnded.emit(f"Dataset loaded ({cnt}/{len(metadata_list)})")
+        self.sigLoadingEnded.emit(f"Dataset loaded ({cnt}/{len(dataset_list)})")
     
     @classmethod
     def readFile(cls, filepath: Path, **kwargs) -> list[DataSet]:
-        """Read file (*.xlsx, *.xls, *.csv, *.parquet) and return a pandas dataframe"""
+        """Read file (*.xlsx, *.xls, *.csv, *.parquet) and return a list of dataset"""
         dfs = []
         file_type = filepath.suffix.lower()
 

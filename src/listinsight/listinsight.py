@@ -275,19 +275,25 @@ class ListInsight(QtWidgets.QWidget):
 
     @Slot(Metadata)
     def onMetadataChanged(self, metadata: Metadata):
-        metadata_list: list = self._project.get("datasets")
-        if metadata_list is None:
-            return
-
-        metadata_dict: dict
-        for i in range(len(metadata_list)):
-            metadata_dict = metadata_list[i]
-            if metadata_dict.get("dataset_id") == metadata.dataset_id:
-                metadata_list[i] = metadata.to_dict()
-                break
-        else:
-            metadata_list.append(metadata.to_dict())
+        for dataset in self._project.get("datasets", []):
+            if dataset.get("metadata", {}).get("dataset_id") == metadata.dataset_id:
+                dataset["metadata"] = metadata.to_dict()
         self.saveProject()
+
+    #TODO
+    def update_dataset_by_id(self, dataset_id, key_path, new_value):
+        # Sample key path to update the dataset name
+        # key_path = ["metadata", "dataset_name"]
+        # update_dataset_by_id(data, "1742738199199895200", key_path, "NEW_SAMPLE")
+        for dataset in self._project.get("datasets", []):
+            if dataset.get("metadata", {}).get("dataset_id") == dataset_id:
+                # Walk down the key path
+                target = dataset
+                for key in key_path[:-1]:
+                    target = target[key]
+                target[key_path[-1]] = new_value
+                return True  # Success
+        return False  # dataset_id not found
 
     @Slot()
     def updateActionState(self):
