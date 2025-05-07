@@ -23,10 +23,12 @@ class Metadata:
 
     def to_dict(self):
         return asdict(self)
+    
 
 class DataSet:
     def __init__(self, df: pd.DataFrame, name: str):
         self._dataframe = df
+        self._unfiltered_df = df.copy()
         self._metadata = Metadata()
         self.name = name
         self.filters: list[Filter] = []
@@ -38,6 +40,10 @@ class DataSet:
     @dataframe.setter
     def dataframe(self, df):
         self._dataframe = df
+    
+    @property
+    def unfiltered_df(self) -> pd.DataFrame:
+        return self._unfiltered_df
 
     @property
     def name(self):
@@ -84,12 +90,13 @@ class DataSet:
     def pk_loc(self):
         return self._metadata.primary_key_index 
     
+    @property
     def pk_type(self):
         return self.dataframe[self.pk_name].dtype
     
     def headers(self) -> list[str]:
         return self.dataframe.columns.values.tolist()
-    
+        
     @property
     def metadata(self) -> Metadata:
         return self._metadata
@@ -128,6 +135,9 @@ class PandasModel(QtCore.QAbstractTableModel):
     
     def dataframe(self):
         return self._dataset.dataframe
+    
+    def unfiltered_df(self):
+        return self._dataset.unfiltered_df
         
     def data(self, index: QtCore.QModelIndex, role: QtCore.Qt.ItemDataRole):
         if not index.isValid():
@@ -176,11 +186,11 @@ class PandasModel(QtCore.QAbstractTableModel):
 
         return None
 
-    def apply_id_filter(self, sid: str):
+    def apply_pk_filter(self, sid: str):
         if self.dataset.pk_name == "":
             return
         
-        if self.dataset.pk_type() == "int64":
+        if self.dataset.pk_type == "int64":
             try:
                 sid = int(sid)
             except:
@@ -193,15 +203,14 @@ class PandasModel(QtCore.QAbstractTableModel):
     
     #TODO
     def apply_user_filter(self):
-        print("apply_user_filter")
-        df = self.dataset.dataframe.copy()
+        df = self.unfiltered_df()
         for filter in self.dataset.filters:
             if filter.enabled:
                 try:
                     df = df.query(filter.expr())
                 except Exception as e:
                     filter.failed = True
-                    logger.error(e)
+                    logger.exception(e)
                     return
         
         self.beginResetModel()
@@ -487,7 +496,7 @@ class DataViewer(QtWidgets.QWidget):
 
     #TODO
     def createFilterModel(self, dataset: DataSet):
-        self.filter_pane.createModel(dataset.uid, dataset.filters)
+        self.filter_pane.createModel(dataset.uid, dataset.filters, dataset.dataframe.dtypes.to_dict())
     
     @Slot(QtWidgets.QMdiSubWindow)
     def setCurrentFilterModel(self, subwindow: QtWidgets.QMdiSubWindow):
@@ -735,7 +744,7 @@ class DataViewer(QtWidgets.QWidget):
                     continue
                 
                 widget: DataView = subwindow.widget()
-                widget.model().apply_id_filter(sid)
+                widget.model().apply_pk_filter(sid)
                 widget.resizeColumnsToContents()
 
     @Slot()

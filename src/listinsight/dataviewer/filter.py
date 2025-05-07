@@ -11,7 +11,10 @@ class Filter:
     failed: bool = False
 
     def expr(cls):
-        return f"`{cls.attr}` {cls.oper} '{cls.value}'"
+        if isinstance(cls.value, int):
+            return f"`{cls.attr}` {cls.oper} {cls.value}"
+        else:
+            return f"`{cls.attr}` {cls.oper} '{cls.value}'"
     
     def to_dict(self):
         return asdict(self)
@@ -20,9 +23,10 @@ class Filter:
 class FilterModel(QtCore.QAbstractListModel):
     sigToggleFilter = Signal(int)
 
-    def __init__(self):
+    def __init__(self, attrs: dict = {}):
         super().__init__()
         self._filters: list[Filter] = []
+        self._attrs = attrs
 
     def flags(self, index):
         return (QtCore.Qt.ItemFlag.ItemIsEnabled |
@@ -81,15 +85,21 @@ class FilterModel(QtCore.QAbstractListModel):
         self.endResetModel()
     
 class FilterDialog(QtWidgets.QDialog):
-    def __init__(self, parent = None):
+    def __init__(self, attrs: dict = {}, parent = None):
         super().__init__(parent)
         self.setWindowTitle("Create filter expression")
+        self.attrs = attrs
 
         formlayout = QtWidgets.QFormLayout()
         self.setLayout(formlayout)
 
-        self.attr = QtWidgets.QLineEdit()
-        formlayout.addRow("Attribut", self.attr)
+        self.attrs_box = QtWidgets.QComboBox()
+        for attr_name in self.attrs.keys():
+            self.attrs_box.addItem(attr_name)
+
+        # self.attr = QtWidgets.QLineEdit()
+        # formlayout.addRow("Attribut", self.attr)
+        formlayout.addRow("Attribut", self.attrs_box)
 
         operators = ["==", "!=", ">", "<", ">=", "<=", "in", "str.contains()"]
 
@@ -141,8 +151,8 @@ class FilterPane(QtWidgets.QWidget):
         add_filter_btn.clicked.connect(self.addFilter)
         edit_filter_btn.clicked.connect(self.editFilter)
 
-    def createModel(self, dataset_id: str, filters: list[Filter]):
-        model = FilterModel()
+    def createModel(self, dataset_id: str, filters: list[Filter], attrs: dict = {}):
+        model = FilterModel(attrs)
         model.load(filters)
         self.filter_models[dataset_id] = model
         self.filter_list.setModel(model)
@@ -170,12 +180,14 @@ class FilterPane(QtWidgets.QWidget):
         index = self.filter_list.selectionModel().currentIndex()
         model: FilterModel = self.filter_list.model()
         filter: Filter = model.filter(index)
-        filter_dlg = FilterDialog(self)
-        filter_dlg.attr.setText(filter.attr)
+        filter_dlg = FilterDialog(model._attrs, self)
+        filter_dlg.attrs = model._attrs
+        # filter_dlg.attr.setText(filter.attr)
+        filter_dlg.attrs_box.setCurrentText(filter.attr)
         filter_dlg.operator.setCurrentText(filter.oper)
         filter_dlg.value.setText(filter.value)
         if filter_dlg.exec():
-            filter.attr = filter_dlg.attr.text()
+            # filter.attr = filter_dlg.attr.text()
             filter.oper = filter_dlg.operator.currentText()
             filter.value = filter_dlg.value.text()
 
