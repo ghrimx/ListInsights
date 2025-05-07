@@ -6,7 +6,8 @@ from dataviewer.dataviewer import DataViewer, Metadata # for testing
 from dataviewer.json_model import JsonModel # for testing
 
 from utilities.utils import writeJson, readJson
-
+from jsonschema import validate
+from json_schema import json_schema
 
 logger = logging.getLogger(__name__)
 
@@ -215,19 +216,10 @@ class ListInsight(QtWidgets.QWidget):
         return True
     
     def validateProjectJson(self):
-        if len(self._project) == 0:
-            return False
-        if not "project_rootpath" in self._project:
-            return False
-        if not "project_name" in self._project:
-            return False
-        if not "datasets" in self._project:
-            return False
-        if not isinstance(self._project["datasets"], list):
-            return False
-        if not "project_files" in self._project:
-            return False
-        if Path(self._project["project_rootpath"]) != self._rootpath:
+        try:
+            validate(self._project, json_schema)
+        except Exception as e:
+            print(e)
             return False
         
         return True
