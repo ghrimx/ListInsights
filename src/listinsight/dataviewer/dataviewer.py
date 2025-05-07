@@ -207,7 +207,7 @@ class PandasModel(QtCore.QAbstractTableModel):
         for filter in self.dataset.filters:
             if filter.enabled:
                 try:
-                    df = df.query(filter.expr())
+                    df = df.query(filter.expr)
                 except Exception as e:
                     filter.failed = True
                     logger.exception(e)
