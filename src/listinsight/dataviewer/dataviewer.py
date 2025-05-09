@@ -108,7 +108,8 @@ class DataSet:
     def __str__(self):
         return self.metadata
 
-    def infoFromJson(self, json: dict|None):
+    def deserialize(self, json: dict|None):
+        """Create Metadata and Filters from their JSON representation """
         if json is None:
             return
 
@@ -123,10 +124,14 @@ class DataSet:
         filter_list: list[dict] = json.get("filters")
         dfilter: dict
         for dfilter in filter_list:
-            filt = Filter(dfilter.get("attr"), dfilter.get("oper"), dfilter.get("value"))
+            filt = Filter(dfilter.get("attr"),
+                          dfilter.get("oper"),
+                          dfilter.get("value"),
+                          dfilter.get("expr"))
             self.filters.append(filt)
         
-    def info(self) -> dict:
+    def serialize(self) -> dict:
+        """Convert Metadata and Filters in their JSON representation"""
         info = {}
         info["metadata"] = self.metadata.to_dict()
         filters = []
@@ -270,7 +275,7 @@ class IndexMenu(QtWidgets.QMenu):
 class DataView(QtWidgets.QTableView):
     sigOpenTagManager = Signal(QtCore.QModelIndex)
     sigAddToShortlist = Signal(str, str)
-    sigPrimaryKeyChanged = Signal(DataSet)
+    sigDatasetInfoChanged = Signal(DataSet)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -343,12 +348,12 @@ class DataView(QtWidgets.QTableView):
     @Slot()
     def onPrimaryKeyChanged(self):
         # metadata: Metadata = self.model().dataset.metadata
-        self.sigPrimaryKeyChanged.emit(self.model().dataset)
+        self.sigDatasetInfoChanged.emit(self.model().dataset)
 
 
 class DataViewer(QtWidgets.QWidget):
     sigDatasetImported = Signal(DataSet)
-    sigPrimaryKeyChanged = Signal(DataSet)
+    sigDatasetInfoChanged = Signal(DataSet)
     sigMessage = Signal(str)
     sigLoadingEnded = Signal(str)
     sigLoadingStarted = Signal(int, str)
@@ -482,6 +487,7 @@ class DataViewer(QtWidgets.QWidget):
     def connectSignals(self):
         self.mdi.subWindowActivated.connect(self.setCurrentFilterModel)
         self.filter_pane.sigToggleFilter.connect(self.toggleFilter)
+        self.filter_pane.sigFilterChanged.connect(self.onFilterChanged)
         # self.shortlister.sigTagsEdited.connect(self.tag_pane.)
 
     def createDataView(self, dataset: DataSet):
@@ -497,8 +503,8 @@ class DataViewer(QtWidgets.QWidget):
             # Signals
             table.sigOpenTagManager.connect(self.onOpenTagManager)
             table.selectionModel().selectionChanged.connect(self.syncSelectionFilter)
-            table.sigPrimaryKeyChanged.connect(self.updateActionState)
-            table.sigPrimaryKeyChanged.connect(self.sigPrimaryKeyChanged)
+            table.sigDatasetInfoChanged.connect(self.updateActionState)
+            table.sigDatasetInfoChanged.connect(self.sigDatasetInfoChanged)
             table.sigAddToShortlist.connect(self.shortlister.addShortlistItem)
 
             subwindow = self.mdi.addSubWindow(table)
@@ -532,6 +538,19 @@ class DataViewer(QtWidgets.QWidget):
         model.apply_user_filter()
 
         # self.filters[index].enabled = not self.filters[index].enabled
+    
+    @Slot()
+    def onFilterChanged(self):
+        active_subwindow = self.mdi.activeSubWindow()
+
+        if active_subwindow is None:
+            return
+
+        table: DataView = active_subwindow.widget()
+        model: PandasModel = table.model()
+        dataset = model.dataset
+
+        self.sigDatasetInfoChanged.emit(dataset)
         
     def isDatasetLoaded(self, filepath: Path) -> bool:
         for subwindow in self.mdi.subWindowList():
@@ -591,10 +610,7 @@ class DataViewer(QtWidgets.QWidget):
                 dataset.parquet = parquetfile
 
                 dataset_info: dict = self.getDatasetInfoFromProject(dataset.uid)
-                dataset.infoFromJson(dataset_info)
-                # metadata: dict = self.metadataFromJson(dataset_id=dataset.uid)
-                # if metadata is not None:
-                #     dataset.pk_name = metadata.get("primary_key_name")
+                dataset.deserialize(dataset_info)
 
                 self.createDataView(dataset)
                 self.createFilterModel(dataset)
@@ -629,7 +645,7 @@ class DataViewer(QtWidgets.QWidget):
             
             datasets = self.readFile(parquet)
             dataset: DataSet = datasets[0]
-            dataset.infoFromJson(dataset_info)
+            dataset.deserialize(dataset_info)
 
             self.createDataView(dataset)
             self.createFilterModel(dataset)

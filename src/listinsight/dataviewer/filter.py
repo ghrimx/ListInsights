@@ -1,4 +1,4 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from qtpy import QtCore, QtWidgets, QtGui, Slot, Signal
 
 
@@ -7,12 +7,12 @@ class Filter:
     attr: str
     oper: str
     value: str
+    expr: str = ""       
     enabled: bool = False
     failed: bool = False
-    expr: str = ""       
     
     def to_dict(self):
-        return asdict(self)
+        return {"attr":self.attr, "oper":self.oper, "value":self.value, "expr":self.expr}
 
 
 class FilterModel(QtCore.QAbstractListModel):
@@ -154,7 +154,7 @@ class FilterDialog(QtWidgets.QDialog):
         return expr
 
 class FilterPane(QtWidgets.QWidget):
-    sigAddFilter = Signal(str)
+    sigFilterChanged = Signal()
     sigToggleFilter = Signal(int)
 
     def __init__(self, parent = None):
@@ -208,6 +208,8 @@ class FilterPane(QtWidgets.QWidget):
 
         model: FilterModel = self.filter_list.model()
         model.removeFilter(index.row(), 1)
+
+        self.sigFilterChanged.emit()
   
     @Slot()
     def addFilter(self):
@@ -219,6 +221,7 @@ class FilterPane(QtWidgets.QWidget):
         if filter_dlg.exec():
             filter = filter_dlg.getFilter()
             model.addFilter(filter)
+            self.sigFilterChanged.emit()
 
     @Slot()
     def editFilter(self):
@@ -242,7 +245,7 @@ class FilterPane(QtWidgets.QWidget):
             filter.oper = filter_dlg.operator.currentText()
             filter.value = filter_dlg.value.text()
             filter.expr = filter_dlg.validate()
-            print(filter.expr)
+            self.sigFilterChanged.emit()
 
 
 
