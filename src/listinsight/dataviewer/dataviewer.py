@@ -108,7 +108,10 @@ class DataSet:
     def __str__(self):
         return self.metadata
 
-    def metasFromJson(self, json: dict):
+    def infoFromJson(self, json: dict|None):
+        if json is None:
+            return
+
         dict_metadata: dict = json.get("metadata")
         metadata = Metadata(dict_metadata.get("primary_key_name"),
                             dict_metadata.get("primary_key_index"),
@@ -123,6 +126,15 @@ class DataSet:
             filt = Filter(dfilter.get("attr"), dfilter.get("oper"), dfilter.get("value"))
             self.filters.append(filt)
         
+    def info(self) -> dict:
+        info = {}
+        info["metadata"] = self.metadata.to_dict()
+        filters = []
+        for filter in self.filters:
+            filters.append(filter.to_dict())
+        info["filters"] = filters
+        
+        return info
 
 class PandasModel(QtCore.QAbstractTableModel):
     def __init__(self, dset: DataSet, parent=None):
@@ -258,7 +270,7 @@ class IndexMenu(QtWidgets.QMenu):
 class DataView(QtWidgets.QTableView):
     sigOpenTagManager = Signal(QtCore.QModelIndex)
     sigAddToShortlist = Signal(str, str)
-    sigPrimaryKeyChanged = Signal(Metadata)
+    sigPrimaryKeyChanged = Signal(DataSet)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -330,13 +342,13 @@ class DataView(QtWidgets.QTableView):
 
     @Slot()
     def onPrimaryKeyChanged(self):
-        metadata: Metadata = self.model().dataset.metadata
-        self.sigPrimaryKeyChanged.emit(metadata)
+        # metadata: Metadata = self.model().dataset.metadata
+        self.sigPrimaryKeyChanged.emit(self.model().dataset)
 
 
 class DataViewer(QtWidgets.QWidget):
-    sigDatasetImported = Signal(Metadata)
-    sigPrimaryKeyChanged = Signal(Metadata)
+    sigDatasetImported = Signal(DataSet)
+    sigPrimaryKeyChanged = Signal(DataSet)
     sigMessage = Signal(str)
     sigLoadingEnded = Signal(str)
     sigLoadingStarted = Signal(int, str)
@@ -578,15 +590,17 @@ class DataViewer(QtWidgets.QWidget):
 
                 dataset.parquet = parquetfile
 
-                metadata: dict = self.metadataFromJson(dataset_id=dataset.uid)
-                if metadata is not None:
-                    dataset.pk_name = metadata.get("primary_key_name")
+                dataset_info: dict = self.getDatasetInfoFromProject(dataset.uid)
+                dataset.infoFromJson(dataset_info)
+                # metadata: dict = self.metadataFromJson(dataset_id=dataset.uid)
+                # if metadata is not None:
+                #     dataset.pk_name = metadata.get("primary_key_name")
 
                 self.createDataView(dataset)
-                self.createFilterModel(dataset.uid)
+                self.createFilterModel(dataset)
 
                 if update_json:
-                    self.sigDatasetImported.emit(dataset.metadata)
+                    self.sigDatasetImported.emit(dataset)
             
         self.updateActionState()
 
@@ -599,8 +613,8 @@ class DataViewer(QtWidgets.QWidget):
         cnt = 0
         self.sigLoadingStarted.emit(len(dataset_list), "Loading datasets...")
         
-        for dataset_dict in dataset_list:
-            parquet_str = dataset_dict.get("metadata", {}).get("parquet")
+        for dataset_info in dataset_list:
+            parquet_str = dataset_info.get("metadata", {}).get("parquet")
             self.sigLoadingProgress.emit(cnt)
             parquet = Path(parquet_str)
 
@@ -615,7 +629,7 @@ class DataViewer(QtWidgets.QWidget):
             
             datasets = self.readFile(parquet)
             dataset: DataSet = datasets[0]
-            dataset.metasFromJson(dataset_dict)
+            dataset.infoFromJson(dataset_info)
 
             self.createDataView(dataset)
             self.createFilterModel(dataset)
@@ -677,6 +691,15 @@ class DataViewer(QtWidgets.QWidget):
             dfs = [dataset]
 
         return dfs
+    
+    #TODO
+    def getDatasetInfoFromProject(self, dataset_id) -> dict | None:
+        json_dataset: dict
+        for json_dataset in self.project.get("datasets", []):
+            if json_dataset.get("metadata", {}).get("dataset_id") == dataset_id:
+                return json_dataset
+        
+        return None
     
     @classmethod
     def save2Parquet(cls, df: pd.DataFrame, filepath: Path) -> bool:

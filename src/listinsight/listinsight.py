@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from qtpy import QtCore, QtWidgets, Slot, QtGui
 
-from dataviewer.dataviewer import DataViewer, Metadata # for testing
+from dataviewer.dataviewer import DataViewer, Metadata, DataSet # for testing
 from dataviewer.json_model import JsonModel # for testing
 
 from utilities.utils import writeJson, readJson
@@ -63,8 +63,8 @@ class ListInsight(QtWidgets.QWidget):
 
         self.dataviewer.shortlister.sigSaveToJson.connect(self.saveShortList)
         self.dataviewer.tag_pane.sigSaveToJson.connect(self.saveTags)
-        self.dataviewer.sigPrimaryKeyChanged.connect(self.onMetadataChanged)
-        self.dataviewer.sigDatasetImported.connect(self.onMetadataChanged)
+        self.dataviewer.sigPrimaryKeyChanged.connect(self.onDatasetInfoChanged)
+        self.dataviewer.sigDatasetImported.connect(self.onDatasetImported)
         self.dataviewer.sigMessage.connect(self.updateStatusbarMessage)
         self.dataviewer.sigLoadingProgress.connect(self.updateProgessbar)
         self.dataviewer.sigLoadingStarted.connect(self.setProgessbar)
@@ -272,6 +272,18 @@ class ListInsight(QtWidgets.QWidget):
                 dataset["metadata"] = metadata.to_dict()
         self.saveProject()
 
+    @Slot(DataSet)
+    def onDatasetInfoChanged(self, dataset: DataSet):
+        for json_dataset in self._project.get("datasets"):
+            if json_dataset.get("metadata", {}).get("dataset_id") == dataset.uid:
+                json_dataset.update(dataset.info())
+                self.saveProject()
+                break
+
+    @Slot(DataSet)
+    def onDatasetImported(self, dataset: DataSet):
+        self._project.get("datasets").append(dataset.to_dict())
+
     #TODO
     def update_dataset_by_id(self, dataset_id, key_path, new_value):
         # Sample key path to update the dataset name
@@ -286,6 +298,8 @@ class ListInsight(QtWidgets.QWidget):
                 target[key_path[-1]] = new_value
                 return True  # Success
         return False  # dataset_id not found
+    
+    
 
     @Slot()
     def updateActionState(self):
