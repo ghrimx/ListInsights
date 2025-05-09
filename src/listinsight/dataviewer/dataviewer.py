@@ -285,6 +285,7 @@ class DataView(QtWidgets.QTableView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._table_name = ""
+        self.setSortingEnabled(True)
 
         # Context Menu
         self.context_menu = QtWidgets.QMenu(self)
@@ -294,6 +295,8 @@ class DataView(QtWidgets.QTableView):
         self.action_openTagMenu = QtGui.QAction(QtGui.QIcon(":tags"), "Manage Tag", self, triggered=self.openTagMenu)
         self.action_show_indexmenu = QtGui.QAction("Show Index Menu", self, triggered=self.showIndexMenu)
         self.action_addToShortlist = QtGui.QAction("Add to Shortlist", self, triggered=self.addToShortlist)
+
+        self.horizontalHeader().sortIndicatorChanged.connect(self.sortByColumn)
 
     @property
     def tablename(self):
@@ -354,6 +357,12 @@ class DataView(QtWidgets.QTableView):
     def onPrimaryKeyChanged(self):
         # metadata: Metadata = self.model().dataset.metadata
         self.sigDatasetInfoChanged.emit(self.model().dataset)
+
+    #TODO
+    @Slot(int,QtCore.Qt.SortOrder)
+    def sortByColumn(self, column, order):
+        print(f"col:{column} - order:{order}")
+        return super().sortByColumn(column, order)
 
 
 class DataViewer(QtWidgets.QWidget):
