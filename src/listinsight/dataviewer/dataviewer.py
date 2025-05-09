@@ -204,18 +204,23 @@ class PandasModel(QtCore.QAbstractTableModel):
         return None
 
     def apply_pk_filter(self, sid: str):
+        """Filter dataframe on primary key"""
         if self.dataset.pk_name == "":
             return
         
         if self.dataset.pk_type == "int64":
             try:
                 sid = int(sid)
+                expr = f"`{self.dataset.pk_name}` == {sid}"
             except:
-                return
+                expr = f"`{self.dataset.pk_name}` == '{sid}'"
+        else:
+            expr = f"`{self.dataset.pk_name}` == '{sid}'"
         
-        df = pd.read_parquet(self.dataset.parquet, filters=[(self.dataset.pk_name, '=', sid)])
+        # df = pd.read_parquet(self.dataset.parquet, filters=[(self.dataset.pk_name, '=', sid)])
+        df = self.dataset.unfiltered_df.query(expr)
         self.beginResetModel()
-        self.dataset.dataframe = df.copy()
+        self.dataset.dataframe = df
         self.endResetModel()
     
     #TODO
@@ -536,8 +541,7 @@ class DataViewer(QtWidgets.QWidget):
         model: PandasModel = table.model()
         model.dataset.filters[index].enabled = not model.dataset.filters[index].enabled
         model.apply_user_filter()
-
-        # self.filters[index].enabled = not self.filters[index].enabled
+        table.resizeColumnsToContents()
     
     @Slot()
     def onFilterChanged(self):
@@ -772,11 +776,11 @@ class DataViewer(QtWidgets.QWidget):
             model: PandasModel = self.mdi.activeSubWindow().widget().model()
 
             try:
-                index: QtCore.QModelIndex = indexes[model.dataset.pk_loc]
+                index: QtCore.QModelIndex = indexes[0]
             except:
                 return
             
-            sid = index.sibling(index.row(), 0).data(QtCore.Qt.ItemDataRole.DisplayRole)
+            sid = index.sibling(index.row(), model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
 
             for subwindow in self.mdi.subWindowList():
                 if subwindow == self.mdi.activeSubWindow():

@@ -219,9 +219,8 @@ class ListInsight(QtWidgets.QWidget):
         try:
             validate(self._project, json_schema)
         except Exception as e:
-            print(e)
+            logger.exception(e)
             return False
-        
         return True
 
     def loadProject(self):
@@ -234,6 +233,7 @@ class ListInsight(QtWidgets.QWidget):
             return
         
         if not self.validateProjectJson():
+            self._project.clear()
             return
         
         self.dataviewer.project = self._project
