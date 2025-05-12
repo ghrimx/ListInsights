@@ -242,8 +242,12 @@ class PandasModel(QtCore.QAbstractTableModel):
     def refresh(self):
         df = pd.read_parquet(self.dataset.parquet)
         self.beginResetModel()
-        self.dataset.dataframe = df.copy()
+        self.dataset.dataframe = self.dataset.unfiltered_df.copy()
         self.endResetModel()
+
+        # Disable filters
+        for filter in self.dataset.filters:
+            filter.enabled = False
 
     @Slot(str, int)
     def setPrimaryIndex(self, name):
@@ -801,8 +805,14 @@ class DataViewer(QtWidgets.QWidget):
 
     @Slot()
     def resetFilters(self):
+        
         for subwindow in self.mdi.subWindowList():
-            subwindow.widget().model().refresh()
+            dataview: DataView = subwindow.widget()
+            dataset_id = dataview.model().dataset.uid
+            filter_model: QtCore.QAbstractTableModel = self.filter_pane.filter_models[dataset_id]
+            filter_model.beginResetModel()
+            dataview.model().refresh()
+            filter_model.endResetModel()
 
     @Slot(QtCore.QModelIndex)
     def onOpenTagManager(self, index: QtCore.QModelIndex):
