@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from qtpy import QtCore, QtWidgets, Slot, QtGui
 
-from dataviewer.dataviewer import DataViewer, Metadata, DataSet # for testing
+from dataviewer.dataviewer import DataViewer, DataSet # for testing
 from dataviewer.json_model import JsonModel # for testing
 
 from utilities.utils import writeJson, readJson
