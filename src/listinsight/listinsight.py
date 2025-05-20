@@ -4,10 +4,13 @@ from qtpy import QtCore, QtWidgets, Slot, QtGui
 
 from dataviewer.dataviewer import DataViewer, DataSet # for testing
 from dataviewer.json_model import JsonModel # for testing
+# from listinsight.dataviewer.dataviewer import DataViewer, DataSet # for prod
+# from listinsight.dataviewer.json_model import JsonModel # for prod
 
 from utilities.utils import writeJson, readJson
 from jsonschema import validate
-from json_schema import json_schema
+from json_schema import json_schema # for testing
+# from listinsight.json_schema import json_schema # for prod
 
 logger = logging.getLogger(__name__)
 

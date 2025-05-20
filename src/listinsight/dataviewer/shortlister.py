@@ -129,6 +129,15 @@ class ShortListModel(QtCore.QAbstractItemModel):
         
         item: ShortListItem = self._items[index.row()]
         return item if item else None
+    
+    def getItemByTitle(self, title:str) -> QtCore.QModelIndex:
+        item: ShortListItem
+        for i in range(len(self._items)):
+            item = self._items[i]
+            if item.title.lower().strip() == title.lower().strip():
+                index = self.index(i, 0)
+                return index
+        return None
 
     def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
@@ -200,7 +209,6 @@ class ShortListModel(QtCore.QAbstractItemModel):
             document[item.title] = {"finding":item.finding,
                                     "tags":item.tags,
                                     "body":item.body}
-        
         return document
 
 
@@ -324,11 +332,14 @@ class ShortListEditor(QtWidgets.QDialog):
         self.tags_lineedit = QtWidgets.QLineEdit()
         self.tags_lineedit.setPlaceholderText("Tags...")
         self.tags_lineedit.setText(",".join(self._item.tags))
+        self.finding_checkbox = QtWidgets.QCheckBox('Finding')
+        self.finding_checkbox.setChecked(self._item.finding)
         self.body_editor = QtWidgets.QTextEdit()
         self.body_editor.setMarkdown(self._item.body)
 
         vbox.addWidget(self.title_lineedit)
         vbox.addWidget(self.tags_lineedit)
+        vbox.addWidget(self.finding_checkbox)
         vbox.addWidget(self.body_editor)
         vbox.addWidget(self.buttonBox)
         self.body_editor.setFocus()
@@ -341,6 +352,7 @@ class ShortListEditor(QtWidgets.QDialog):
         self._item.title = self.title_lineedit.text()
         tags = [x.strip() for x in self.tags_lineedit.text().split(',')]
         self._item.tags = tags
+        self._item.finding = self.finding_checkbox.isChecked()
         return super().accept()
         
     def item(self):
@@ -408,8 +420,15 @@ class ShortLister(QtWidgets.QWidget):
 
     @Slot(QtCore.QModelIndex)
     def editShortlistItem(self, index: QtCore.QModelIndex):
+        if not index.isValid():
+            return
+        
         src_index = self._proxymodel.mapToSource(index)
         item = self.model().getItem(src_index)
+        
+        if item is None:
+            return
+        
         self.editor = ShortListEditor(item, self)
 
         if self.editor.exec():
@@ -434,6 +453,11 @@ class ShortLister(QtWidgets.QWidget):
 
     @Slot(str, str)
     def addShortlistItem(self, title: str = "", tags: str = ""):
+        item_index = self.model().getItemByTitle(title)
+        if item_index is not None:
+            self.editShortlistItem(self._proxymodel.mapFromSource(item_index))
+            return
+
         item = ShortListItem("", title, [x.strip() for x in tags.split(',')])
         self.editor = ShortListEditor(item, self)
 
