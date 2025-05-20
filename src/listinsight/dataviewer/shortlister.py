@@ -11,7 +11,7 @@ class ShortListProxyModel(QtCore.QSortFilterProxyModel):
 
         self.setSourceModel(model)
 
-        self.user_filter = QtCore.QRegularExpression()
+        self.user_filter = QtCore.QRegularExpression() #TODO
         self.pattern_filter = ""
 
     def setPatternFilter(self, pattern: str):
@@ -30,7 +30,7 @@ class ShortListProxyModel(QtCore.QSortFilterProxyModel):
             return True
         elif self.pattern_filter in item.body:
             return True
-        elif self.pattern_filter in item.tags:
+        elif self.pattern_filter.lower() in ','.join(item.tags).lower():
             return True
         else:
             return False
@@ -271,16 +271,21 @@ class ShortListDelegate(QtWidgets.QStyledItemDelegate):
         painter.setFont(font)
         painter.setPen(QtGui.QColorConstants.Svg.dodgerblue)
         tag_rect = item_rect.adjusted(30, 23, -10, 0)
-        painter.drawText(tag_rect, QtCore.Qt.AlignmentFlag.AlignRight, ", ".join(item.tags))
+        tags_str = ", ".join(item.tags)
+        if tags_str == '':
+            painter.setPen(QtGui.QColorConstants.Svg.grey)
+            tags_str = 'none'
+        painter.drawText(tag_rect, QtCore.Qt.AlignmentFlag.AlignRight, tags_str)
 
+        #TODO: evaluate if should be removed
         # Body content
-        if not item.body.strip() == "":
-            painter.setPen(QtGui.QColorConstants.Black)
-            excerpt_rect = item_rect.adjusted(30, 53, -10, 0)
-            flags = QtCore.Qt.AlignmentFlag.AlignLeft|QtCore.Qt.TextFlag.TextWordWrap
-            fontm = painter.fontMetrics()
-            excerpt = fontm.elidedText(item.body, QtCore.Qt.TextElideMode.ElideRight, excerpt_rect.width() * 2)
-            painter.drawText(excerpt_rect, flags, excerpt)
+        # if not item.body.strip() == "":
+        #     painter.setPen(QtGui.QColorConstants.Black)
+        #     excerpt_rect = item_rect.adjusted(30, 53, -10, 0)
+        #     flags = QtCore.Qt.AlignmentFlag.AlignLeft|QtCore.Qt.TextFlag.TextWordWrap
+        #     fontm = painter.fontMetrics()
+        #     excerpt = fontm.elidedText(item.body, QtCore.Qt.TextElideMode.ElideRight, excerpt_rect.width() * 2)
+        #     painter.drawText(excerpt_rect, flags, excerpt)
 
         # Bottom border line
         painter.setPen(QtCore.Qt.GlobalColor.gray)
@@ -289,7 +294,7 @@ class ShortListDelegate(QtWidgets.QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option, index):
-        return QtCore.QSize(200, 100)
+        return QtCore.QSize(200, 60)
     
 class ShortListView(QtWidgets.QListView):
     def __init__(self):
@@ -334,7 +339,8 @@ class ShortListEditor(QtWidgets.QDialog):
     def accept(self):
         self._item.body = self.body_editor.toMarkdown()
         self._item.title = self.title_lineedit.text()
-        self._item.tags = self.tags_lineedit.text().split(",")
+        tags = [x.strip() for x in self.tags_lineedit.text().split(',')]
+        self._item.tags = tags
         return super().accept()
         
     def item(self):
@@ -428,7 +434,7 @@ class ShortLister(QtWidgets.QWidget):
 
     @Slot(str, str)
     def addShortlistItem(self, title: str = "", tags: str = ""):
-        item = ShortListItem("", title, tags.split(","))
+        item = ShortListItem("", title, [x.strip() for x in tags.split(',')])
         self.editor = ShortListEditor(item, self)
 
         if self.editor.exec():

@@ -230,12 +230,13 @@ class ListInsight(QtWidgets.QWidget):
         self._project, err = readJson(self._project_file.as_posix())
 
         if err != "":
+            logger.error(err)
             return
         
         if not self.validateProjectJson():
             self._project.clear()
             return
-        
+
         self.dataviewer.project = self._project
         self._shortlist_file = Path(self._project["project_files"]["shortlist"])
         self._tagged_file = Path(self._project["project_files"]["tagged"])

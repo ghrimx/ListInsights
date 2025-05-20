@@ -350,7 +350,15 @@ class DataView(QtWidgets.QTableView):
 
         model: PandasModel = self.model()
         pk_value = index.sibling(index.row(), model.dataset.pk_loc).data(QtCore.Qt.ItemDataRole.DisplayRole)
-        _tags = index.sibling(index.row(), model.dataframe().columns.get_loc("Tags")).data(QtCore.Qt.ItemDataRole.DisplayRole)
+        tag_col_index = -1
+        _tags = 'None'
+        try:
+            tag_col_index = model.dataframe().columns.get_loc("Tags")
+        except Exception as e:
+            pass
+
+        if tag_col_index > -1:
+            _tags = index.sibling(index.row(), tag_col_index).data(QtCore.Qt.ItemDataRole.DisplayRole)
         
         if _tags == 'None':
             tags = ""
